@@ -1,0 +1,2438 @@
+---
+title: "GECCo Verbs non-finite visualisations"
+author: "Hanna Mahler"
+date: "2023-02-27"
+output: html_document
+---
+
+#1. Load libraries
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse) ## needed for data wrangling
+library(readxl) ## needed for reading in data
+options(scipen = 999) # this turns off the scientific notation of very high/low numbers (e-10)
+set.seed(42) ## make results reproducible be setting seed to a specific number
+```
+
+#2. Load data
+
+First, load and inspect the pre-processed, tidy data.
+
+```{r df texts and registers}
+## data frame with texts
+texts <- read_excel("Overview_texts_vp.xlsx") %>%
+  mutate(Language = as.factor(Language),
+         Register = as.factor(Register), 
+         Mode = as.factor(Mode),
+         STTR_z = scale(STTR)) ## the variable STTR needs to be z-scored (= centered and scaled)
+## data frame with registers
+registers <- read_excel("Overview_registers_vp.xlsx")
+
+head(registers)
+head(texts)
+```
+
+We will also need the files with verbs as rows, since not all the frequencies we want to look at are included in the data frame 'texts'.
+
+```{r df verb phrases}
+vp_EO = read_excel("vp_EO.xlsx")
+vp_GO = read_excel("vp_GO.xlsx")
+
+## change name from "complement" to "nominal" and from "modifying" to "embedded" in all data frames 
+# gsub(pattern, replace, x)
+vp_EO$sentence_function = gsub("complement", "nominal", vp_EO$clause_type)
+vp_GO$sentence_function = gsub("complement", "nominal", vp_GO$clause_type)
+vp_EO$sentence_function = gsub("modifying", "embedded", vp_EO$clause_type)
+vp_GO$sentence_function = gsub("modifying", "embedded", vp_GO$clause_type)
+
+## change language labels from the original "eng"/"deu" to "English"/"German"
+vp_EO$Language = gsub("eng", "English", vp_EO$Language)
+vp_GO$Language = gsub("deu", "German", vp_GO$Language)
+summary(as.factor(vp_EO$Language))
+summary(as.factor(vp_GO$Language))
+
+## combine into one data frame
+verbs = bind_rows(vp_EO, vp_GO)
+head(verbs)
+
+# data frame containing all English verb phrases marked as "non-finite"
+verbs_nf_EO = filter(vp_EO, finiteness == "non-finite", type == "main")
+# data frame containing all English verb phrases marked as "finite"
+verbs_f_EO = filter(vp_EO, finiteness == "finite", type == "main")
+
+# data frame containing all German verb phrases marked as "non-finite"
+verbs_nf_GO = filter(vp_GO, finiteness == "non-finite", type == "main")
+# data frame containing all German verb phrases marked as "finite"
+verbs_f_GO = filter(vp_GO, finiteness == "finite", type == "main")
+
+# data frame containing all verb phrases marked as "finite"
+verbs_f = filter(verbs, finiteness == "finite", type == "main")
+# data frame containing all verb phrases marked as "non-finite"
+verbs_nf = filter(verbs, finiteness == "non-finite", type == "main")
+```
+
+
+#3. Produce descriptive statistics
+
+##3.0 Overall frequency of non-finite verb phrases
+
+```{r English summary statistics}
+## total number of verb phrases in the English data set
+nrow(verbs_nf_EO) + nrow(verbs_f_EO)
+
+## total number of non-finite verb phrases in the English data set
+## (verbs_nf_EO includes everything with type == main and finiteness == nonfinite)
+nrow(verbs_nf_EO)
+
+## percentage of non-finite verbs of all verb phrases
+## (verbs_f_EO includes everything with type == main and finiteness == finite)
+nrow(verbs_nf_EO)/(nrow(verbs_nf_EO) + nrow(verbs_f_EO))
+```
+
+```{r German summary statistics}
+## total number of verb phrases in the English data set
+nrow(verbs_nf_GO) + nrow(verbs_f_GO)
+
+## total number of non-finite verb phrases in the English data set
+## (verbs_nf_GO includes everything with type == main and finiteness == nonfinite)
+nrow(verbs_nf_GO)
+
+## percentage of non-finite verbs of all verb phrases
+## (verbs_f_GO includes everything with type == main and finiteness == finite)
+nrow(verbs_nf_GO)/(nrow(verbs_nf_GO) + nrow(verbs_f_GO))
+```
+
+```{r both summary statistics}
+## total number of non-finite verb phrases in the whole data set
+nrow(verbs_nf)
+
+## percentage of non-finite verbs of all verb phrases
+nrow(verbs_nf)/(nrow(verbs_nf) + nrow(verbs_f))
+```
+
+
+###3.0.1 Dispersion measure
+
+Make a graph showing the dispersion of non-finite verb phrases over the corpus. Corpus text on x-axis (randomised?), relative frequency of non-finite verb phrases in that text on the y-axis.
+
+```{r English visualisation}
+ggplot(data = subset(texts, Language == "English")) +
+  geom_col(mapping = aes(x = Text_id, y = vp_nf_phw)) + 
+  theme_classic() +
+  labs(y = "Frequency of non-finite verb phrases phw", x = "Corpus text", title = "Dispersion of non-finite verb phrases in English component of the GECCO corpus") + 
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank()) + 
+  coord_cartesian(ylim = c(0, 6))
+```
+
+```{r German visualisation}
+ggplot(data = subset(texts, Language == "German")) +
+  geom_col(mapping = aes(x = Text_id, y = vp_nf_phw)) + 
+  theme_classic() +
+  labs(y = "Frequency of non-finite verb phrases phw", x = "Corpus text", title = "Dispersion of non-finite verb phrases in German component of the GECCO corpus") + 
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())  + 
+  coord_cartesian(ylim = c(0, 6))
+```
+
+
+##3.1 Relationship between register and frequency of non-finite verb phrases
+
+Average number of non-finite verb phrases *per hundred words* by register
+
+```{r English plotting}
+## point-range plot
+registers %>%
+  filter(Language == "English") %>%
+  mutate(Register = fct_reorder(Register, vp_nf_phw_av)) %>%
+  ggplot() + 
+    geom_pointrange(mapping = aes(x = vp_nf_phw_av, y = Register, colour = Mode,
+                                  xmin = vp_nf_phw_min, xmax = vp_nf_phw_max, shape = Mode), 
+                    size = 0.5, position = position_dodge(width=0.4)) + 
+    geom_vline(xintercept = mean(registers$vp_nf_phw_av), colour = "grey") +
+    labs(x = "Number of non-finite verb phrases per hundred words", y = "Register", title = "Number of non-finite verb phrases phw for each register - English") +
+    theme_bw() + 
+  coord_cartesian(xlim = c(0, 6))
+
+## density plot
+ggplot(data = subset(texts, Language == "English")) +
+  geom_density(mapping = aes(x = vp_nf_phw)) +
+  facet_wrap( ~ Register, nrow = 3) + 
+  coord_cartesian(xlim = c(0, 6))
+```
+
+```{r German plotting}
+## point-range plot
+registers %>%
+  filter(Language == "German") %>%
+  mutate(Register = fct_reorder(Register, vp_nf_phw_av)) %>%
+  ggplot() + 
+    geom_pointrange(mapping = aes(x = vp_nf_phw_av, y = Register, color = Mode, 
+                                  xmin = vp_nf_phw_min, xmax = vp_nf_phw_max, shape = Mode), 
+                    size = 0.5, position = position_dodge(width=0.4)) + 
+    geom_vline(xintercept = mean(registers$vp_nf_phw_av), colour = "grey") +
+    labs(x = "Number of non-finite verb phrases per hundred words", y = "Register", title = "Number of non-finite verb phrases phw for each register - German") +
+    theme_bw() + 
+  coord_cartesian(xlim = c(0, 6))
+
+## density plot
+ggplot(data = subset(texts, Language == "German")) +
+  geom_density(mapping = aes(x = vp_nf_phw)) +
+  facet_wrap( ~ Register, nrow = 3) + 
+  coord_cartesian(xlim = c(0, 6))
+```
+
+```{r both plotting}
+## create new data frame with re-ordered factor levels
+texts_reorderreg = texts %>%
+  mutate(Register = fct_reorder(Register, vp_nf_phw, .fun="median"))
+summary(texts_reorderreg$Register)
+
+## both languages as a density plot
+ggplot(data = texts) +
+  geom_density(mapping = aes(x = vp_nf_phw, colour = Language)) +
+  facet_wrap( ~ Register, nrow = 3) + 
+  coord_cartesian(xlim = c(0, 6))
+
+## both languages (split up) as a boxplot
+ggplot(data = texts_reorderreg) +
+  geom_boxplot(mapping = aes(x = vp_nf_phw, y = Register, fill = Language)) + 
+  geom_vline(xintercept = mean(texts$vp_nf_phw), linetype = 2) + 
+  labs(x = "Number of non-finite verb phrases per hundred words", y = "Register", title = "Number of non-finite verb phrases per hundred words \nfor each register by language") + 
+  coord_cartesian(xlim = c(0, 6))
+
+## both languages (not split up) as a boxplot
+ggplot(data = texts_reorderreg) +
+  geom_boxplot(mapping = aes(x = vp_nf_phw, y = Register)) + 
+  geom_vline(xintercept = mean(texts$vp_nf_phw), linetype = 2) + 
+  labs(x = "Number of non-finite verb phrases per hundred words", y = "Register", title = "Number of non-finite verb phrases per hundred words \nfor each register") + 
+  coord_cartesian(xlim = c(0, 6))
+
+## both languages as a point-range plot
+registers %>%
+  mutate(Register = fct_reorder(Register, vp_nf_phw_av)) %>%
+  ggplot() + 
+    geom_pointrange(mapping = aes(x = vp_nf_phw_av, y = Register, color = Language, 
+                                  xmin = vp_nf_phw_min, xmax = vp_nf_phw_max, shape = Mode), 
+                    size = 0.5, position = position_dodge(width=0.4)) + 
+    geom_vline(xintercept = mean(registers$vp_nf_phw_av), colour = "grey") +
+    labs(x = "Number of non-finite verb phrases per hundred words", y = "Register", title = "Number of non-finite verb phrases phw \nfor each register") +
+    theme_bw() +
+    coord_cartesian(xlim = c(0, 6))
+```
+
+
+##3.2 Relationship between language and frequency of non-finite verb phrases
+
+```{r both plotting}
+## as a density plot
+ggplot(data = texts) +
+  geom_density(mapping = aes(x = vp_nf_phw, colour = Language))
+
+## as a box plot
+ggplot(data = texts) + 
+  geom_boxplot(mapping = aes(x = vp_nf_phw, y = Language, fill = Language), show.legend = FALSE) +
+  geom_vline(xintercept = mean(texts$vp_nf_phw), linetype = 2) + 
+  coord_cartesian(xlim = c(0, 6))
+```
+
+
+##3.3 Relationship between Mode and frequency of non-finite verb phrases
+
+```{r summary statistics}
+## average number of non-finite verb phrases per hundred words
+# overall
+texts %>%
+  group_by(Mode) %>%
+  summarise(mean(vp_nf_phw))
+
+# by language
+texts %>%
+  group_by(Mode, Language) %>%
+  summarise(mean(vp_nf_phw))
+```
+
+```{r both plotting}
+## density plot
+ggplot(data = texts) +
+  geom_density(mapping = aes(x = vp_nf_phw, colour = Mode)) + 
+  labs(x = "Number of non-finite verb phrases per hundred words", y = "Density", title = "Number of non-finite verb phrases per hundred words \nfor each Mode by language") +
+  facet_wrap( ~ Language, ncol = 1) + 
+  coord_cartesian(xlim = c(0, 6))
+
+## box plot
+ggplot(data = texts) +
+  geom_boxplot(mapping = aes(x = vp_nf_phw, fill = Mode)) + 
+  labs(x = "Number of non-finite verb phrases per hundred words", title = "Number of non-finite verb phrases per hundred words \nfor each Mode by language") + 
+  facet_wrap( ~ Language, nrow = 2) + 
+  coord_cartesian(xlim = c(0, 6))
+  
+ggplot(data = texts) +
+  geom_boxplot(mapping = aes(x = vp_nf_phw, fill = Mode)) + 
+  labs(x = "Number of non-finite verb phrases per hundred words", title = "Number of non-finite verb phrases per hundred words \nfor each Mode") + 
+  coord_cartesian(xlim = c(0, 6))
+```
+
+
+##3.4 Relationship between information density (=STTR_z) and frequency of non-finite verb phrases
+
+###3.4.1 On text level
+
+```{r English plotting}
+ggplot(data = subset(texts, Language == "English"), aes(x = vp_nf_phw, y = STTR_z)) +
+  geom_point() +
+  # add regression line
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(y = "z-scored Standardised Type-Token Ratio", x = "Frequency of non-finite verb phrases per hundred words", title = "Standardised type-token ratio \nand frequency of non-finite verb phrases per text - English") + 
+  coord_cartesian(xlim = c(0, 6))
+```
+
+```{r German plotting}
+ggplot(data = subset(texts, Language == "German"), aes(x = vp_nf_phw, y = STTR_z)) +
+  geom_point() +
+  # add regression line
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(y = "z-scored Standardised Type-Token Ratio", x = "Frequency of non-finite verb phrases per hundred words", title = "Standardised type-token ratio \nand frequency of non-finite verb phrases per text - German") + 
+  coord_cartesian(xlim = c(0, 6))
+```
+
+```{r both plotting}
+## both languages (split up)
+ggplot(data = texts, aes(x = vp_nf_phw, y = STTR)) +
+  geom_point(aes(colour = Language, fill = Language), show.legend = FALSE) +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(y = "Standardised Type-Token Ratio", x = "Frequency of non-finite verb phrases per hundred words", title = "Standardised type-token ratio \nand frequency of non-finite verb phrases per text by language") + 
+  facet_wrap( ~ Language, ncol = 2) + 
+  coord_cartesian(xlim = c(0, 6))
+
+## both languages (not split up)
+ggplot(data = texts, aes(x = vp_nf_phw, y = STTR)) +
+  geom_point(aes()) +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(y = "Standardised Type-Token Ratio", x = "Frequency of non-finite verb phrases per hundred words", title = "Standardised type-token ratio \nand frequency of non-finite verb phrases per text") + 
+  coord_cartesian(xlim = c(0, 6))
+```
+
+```{r correlation coefficient}
+# for German only
+cor(subset(texts, Language == "German")$vp_nf_phw, subset(texts, Language == "German")$STTR, method = "pearson") #0.2523412
+
+# for English only
+cor(subset(texts, Language == "English")$vp_nf_phw, subset(texts, Language == "English")$STTR, method = "pearson") #0.156961
+
+# for both
+cor(texts$vp_nf_phw, texts$STTR, method = "pearson") #-0.07240754
+
+```
+
+###3.4.2 On register level
+
+```{r English plotting}
+ggplot(data = subset(registers, Language == "English"), aes(x = vp_nf_phw_av, y = STTR_av)) +
+  geom_point() +
+  # add regression line
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  # use register names as points in the plot
+  geom_text(aes(x = vp_nf_phw_av, y = STTR_av, label = Register), 
+            size = 3, vjust = 1.5) + 
+  labs(y = "Standardised Type-Token Ratio (average)", x = "Average frequency of non-finite verb phrases per hundred words", title = "Standardised type-token ratio \nand frequency of non-finite verb phrases per register - English") + 
+  coord_cartesian(xlim = c(0, 6))
+```
+
+```{r German plotting}
+ggplot(data = subset(registers, Language == "German"), 
+       aes(x = vp_nf_phw_av, y = STTR_av)) +
+  # add regression line
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  geom_point() +
+  # use register names as points in the plot
+  geom_text(aes(x = vp_nf_phw_av, y = STTR_av, label = Register), 
+            size = 3, vjust = 1.5) + 
+  labs(y = "Standardised Type-Token Ratio (average)", x = "Average frequency of non-finite verb phrases per hundred words", title = "Standardised type-token ratio \nand frequency of non-finite verb phrases per register - German") + 
+  coord_cartesian(xlim = c(0, 6))
+
+```
+
+```{r both plotting}
+ggplot(data = registers, aes(x = vp_nf_phw_av, y = STTR_av)) +
+  geom_point(aes(colour = Language, fill = Language)) +
+  # add regression line
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  # use register names as points in the plot?
+  geom_text(aes(x = vp_nf_phw_av, y = STTR_av, label = Register, colour = Language), 
+            size = 3, vjust = 1.5) + 
+  labs(y = "Standardised Type-Token Ratio (average)", x = "Average frequency of non-finite verb phrases per hundred words", title = "Standardised type-token ratio \nand frequency of non-finite verb phrases per register") + 
+  coord_cartesian(xlim = c(0, 6))
+```
+
+```{r correlation coefficient}
+# for German only
+cor(subset(registers, Language == "German")$vp_nf_phw_av, subset(registers, Language == "German")$STTR_av, method = "pearson") #0.52035
+
+# for English only
+cor(subset(registers, Language == "English")$vp_nf_phw_av, subset(registers, Language == "English")$STTR_av, method = "pearson") #0.1265262
+
+# for both
+cor(registers$vp_nf_phw_av, registers$STTR_av, method = "pearson") #-0.09609958
+```
+
+
+###3.4.3 Relationship between information density and sub-types of non-finite verb phrases
+
+####3.4.3.1 Information density and verb form
+
+```{r plotting bare infinitive}
+ggplot(data = texts) +
+  geom_point(mapping = aes(y = infbare_phw, x = STTR)) +
+  # add regression line
+  #geom_smooth(method=lm, mapping = aes(y = parpas_phw, x = STTR_z), color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Standardised Type-Token Ratio", y = "Frequency of bare infinitive per hundred words", title = "Standardised type-token ratio and frequency of bare infinitive per text") + 
+  coord_cartesian(ylim = c(0, 1)) + 
+  facet_wrap(. ~ Language)
+```
+
+```{r correlation coefficient bare infinitive}
+# for German only
+cor(subset(texts, Language == "German")$infbare_phw, subset(texts, Language == "German")$STTR, method = "pearson") #0.1095945
+
+# for English only
+cor(subset(texts, Language == "English")$infbare_phw, subset(texts, Language == "English")$STTR, method = "pearson") #-0.05759003
+
+# for both
+cor(texts$infbare_phw, texts$STTR, method = "pearson") #0.00690155
+
+```
+
+```{r plotting to-infinitive}
+ggplot(data = texts) +
+  geom_point(mapping = aes(y = infto_phw, x = STTR)) +
+  # add regression line
+  #geom_smooth(method=lm, mapping = aes(y = infto_phw, x = STTR_z), color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Standardised Type-Token Ratio", y = "Frequency of to/zu-infinitive per hundred words", title = "Standardised type-token ratio and frequency of to/zu-infinitive per text") + 
+  coord_cartesian(ylim = c(0, 4)) + 
+  facet_wrap(. ~ Language)
+```
+
+```{r correlation coefficient to-infinitive}
+# for German only
+cor(subset(texts, Language == "German")$infto_phw, subset(texts, Language == "German")$STTR, method = "pearson") #0.1619059
+
+# for English only
+cor(subset(texts, Language == "English")$infto_phw, subset(texts, Language == "English")$STTR, method = "pearson") #-0.01881647
+
+# for both
+cor(texts$infto_phw, texts$STTR, method = "pearson") #-0.12186
+
+```
+
+```{r plotting past participle}
+ggplot(data = texts) +
+  geom_point(mapping = aes(y = parpas_phw, x = STTR)) +
+  # add regression line
+  #geom_smooth(method=lm, mapping = aes(y = parpas_phw, x = STTR_z), color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Standardised Type-Token Ratio", y = "Frequency of past participle per hundred words", title = "Standardised type-token ratio and frequency of past participle per text") + 
+  coord_cartesian(ylim = c(0, 1))  + 
+  facet_wrap(. ~ Language)
+```
+
+```{r correlation coefficient past participle}
+# for German only
+cor(subset(texts, Language == "German")$parpas_phw, subset(texts, Language == "German")$STTR, method = "pearson") #0.2864975
+
+# for English only
+cor(subset(texts, Language == "English")$parpas_phw, subset(texts, Language == "English")$STTR, method = "pearson") #0.4363442
+
+# for both
+cor(texts$parpas_phw, texts$STTR, method = "pearson") #0.2426628
+
+```
+
+```{r plotting present participle}
+ggplot(data = texts) +
+  geom_point(mapping = aes(y = parpre_phw, x = STTR)) +
+  # add regression line
+  #geom_smooth(method=lm, mapping = aes(y = parpas_phw, x = STTR_z), color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Standardised Type-Token Ratio", y = "Frequency of present participle per hundred words", title = "Standardised type-token ratio and frequency of present participle per text") + 
+  coord_cartesian(ylim = c(0, 3))  + 
+  facet_wrap(. ~ Language)
+```
+
+```{r correlation coefficient present participle}
+# for German only
+cor(subset(texts, Language == "German")$parpre_phw, subset(texts, Language == "German")$STTR, method = "pearson") #0.19702
+
+# for English only
+cor(subset(texts, Language == "English")$parpre_phw, subset(texts, Language == "English")$STTR, method = "pearson") #0.2510386
+
+# for both
+cor(texts$parpre_phw, texts$STTR, method = "pearson") #-0.07320182
+
+```
+
+
+####3.4.3.2 Information density and sentence function
+
+```{r plotting adverbial clause}
+ggplot(data = texts) +
+  geom_point(mapping = aes(y = adv_phw, x = STTR)) +
+  # add regression line
+  #geom_smooth(method=lm, mapping = aes(y = parpas_phw, x = STTR_z), color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Standardised Type-Token Ratio", y = "Frequency of non-finite adverbial clauses phw", title = "Standardised type-token ratio and frequency of non-finite adverbial clauses per text") + 
+  coord_cartesian(ylim = c(0, 3.5)) + 
+  facet_wrap(. ~ Language)
+```
+
+```{r correlation coefficient adverbial clause}
+# for German only
+cor(subset(texts, Language == "German")$adv_phw, subset(texts, Language == "German")$STTR, method = "pearson") #0.005345526
+
+# for English only
+cor(subset(texts, Language == "English")$adv_phw, subset(texts, Language == "English")$STTR, method = "pearson") #0.0465015
+
+# for both
+cor(texts$adv_phw, texts$STTR, method = "pearson") #-0.1064512
+
+```
+
+```{r plotting embedded clauses}
+ggplot(data = texts) +
+  geom_point(mapping = aes(y = emb_phw, x = STTR)) +
+  # add regression line
+  #geom_smooth(method=lm, mapping = aes(y = infto_phw, x = STTR_z), color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Standardised Type-Token Ratio", y = "Frequency of non-finite embedded clauses phw", title = "Standardised type-token ratio and frequency of non-finite embedded clauses per text") + 
+  coord_cartesian(ylim = c(0, 4)) + 
+  facet_wrap(. ~ Language)
+```
+
+```{r correlation coefficient embedded clause}
+# for German only
+cor(subset(texts, Language == "German")$emb_phw, subset(texts, Language == "German")$STTR, method = "pearson") #0.308634
+
+# for English only
+cor(subset(texts, Language == "English")$emb_phw, subset(texts, Language == "English")$STTR, method = "pearson") #0.5104613
+
+# for both
+cor(texts$emb_phw, texts$STTR, method = "pearson") #0.1878539
+```
+
+```{r plotting nominal clauses}
+ggplot(data = texts) +
+  geom_point(mapping = aes(y = nom_phw, x = STTR)) +
+  # add regression line
+  #geom_smooth(method=lm, mapping = aes(y = parpas_phw, x = STTR_z), color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Standardised Type-Token Ratio", y = "Frequency of non-finite nominal clauses phw", title = "Standardised type-token ratio and frequency of non-finite nominal clauses per text", caption = "One English outlier not shown") + 
+  coord_cartesian(ylim = c(0, 3))  + 
+  facet_wrap(. ~ Language)
+```
+
+```{r correlation coefficient nominal clause}
+# for German only
+cor(subset(texts, Language == "German")$nom_phw, subset(texts, Language == "German")$STTR, method = "pearson") #0.2111786
+
+# for English only
+cor(subset(texts, Language == "English")$nom_phw, subset(texts, Language == "English")$STTR, method = "pearson") #-0.2218839
+
+# for both
+cor(texts$nom_phw, texts$STTR, method = "pearson") #-0.2213072
+```
+
+```{r plotting independent clauses}
+ggplot(data = texts) +
+  geom_point(mapping = aes(y = ind_phw, x = STTR)) +
+  # add regression line
+  #geom_smooth(method=lm, mapping = aes(y = parpas_phw, x = STTR_z), color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Standardised Type-Token Ratio", y = "Frequency of non-finite independent clauses phw", title = "Standardised type-token ratio \nand frequency of non-finite independent clauses per text") + 
+  coord_cartesian(ylim = c(0, 1))  + 
+  facet_wrap(. ~ Language)
+```
+
+```{r correlation coefficient independent clause}
+# for German only
+cor(subset(texts, Language == "German")$ind_phw, subset(texts, Language == "German")$STTR, method = "pearson") #-0.04744809
+
+# for English only
+cor(subset(texts, Language == "English")$ind_phw, subset(texts, Language == "English")$STTR, method = "pearson") #-0.2737127
+
+# for both
+cor(texts$ind_phw, texts$STTR, method = "pearson") #-0.245424
+```
+
+####3.4.3.3 Information density and syntactic function of nominal clauses
+
+```{r plotting subject clause}
+ggplot(data = texts) +
+  geom_point(mapping = aes(y = subj_phw, x = STTR)) +
+  # add regression line
+  #geom_smooth(method=lm, mapping = aes(y = parpas_phw, x = STTR_z), color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Standardised Type-Token Ratio", y = "Frequency of non-finite subject clauses phw", title = "Standardised type-token ratio and frequency of non-finite subject clauses per text") + 
+  coord_cartesian(ylim = c(0, 1)) + 
+  facet_wrap(. ~ Language)
+```
+
+```{r correlation coefficient subject clause}
+# for German only
+cor(subset(texts, Language == "German")$subj_phw, subset(texts, Language == "German")$STTR, method = "pearson") #0.08460723
+
+# for English only
+cor(subset(texts, Language == "English")$subj_phw, subset(texts, Language == "English")$STTR, method = "pearson") #0.06197834
+
+# for both
+cor(texts$subj_phw, texts$STTR, method = "pearson") #0.0195274
+```
+
+```{r plotting object clauses}
+ggplot(data = texts) +
+  geom_point(mapping = aes(y = obj_phw, x = STTR)) +
+  # add regression line
+  #geom_smooth(method=lm, mapping = aes(y = infto_phw, x = STTR_z), color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Standardised Type-Token Ratio", y = "Frequency of non-finite object clauses phw", title = "Standardised type-token ratio and frequency of non-finite object clauses per text") + 
+  coord_cartesian(ylim = c(0, 3.5)) + 
+  facet_wrap(. ~ Language)
+```
+
+```{r correlation coefficient object clause}
+# for German only
+cor(subset(texts, Language == "German")$obj_phw, subset(texts, Language == "German")$STTR, method = "pearson") #0.08690863
+
+# for English only
+cor(subset(texts, Language == "English")$obj_phw, subset(texts, Language == "English")$STTR, method = "pearson") #-0.05177786
+
+# for both
+cor(texts$obj_phw, texts$STTR, method = "pearson") #-0.1477692
+```
+
+```{r plotting subject complement clauses}
+ggplot(data = texts) +
+  geom_point(mapping = aes(y = comps_phw, x = STTR)) +
+  # add regression line
+  #geom_smooth(method=lm, mapping = aes(y = parpas_phw, x = STTR_z), color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Standardised Type-Token Ratio", y = "Frequency of non-finite subject complement clauses phw", title = "Standardised type-token ratio \nand frequency of non-finite subject complement clauses per text", caption = "One English outlier not shown") + 
+  coord_cartesian(ylim = c(0, 1.5))  + 
+  facet_wrap(. ~ Language)
+```
+
+```{r correlation coefficient subject complement clause}
+# for German only
+cor(subset(texts, Language == "German")$comps_phw, subset(texts, Language == "German")$STTR, method = "pearson") #0.08690863
+
+# for English only
+cor(subset(texts, Language == "English")$comps_phw, subset(texts, Language == "English")$STTR, method = "pearson") #-0.05177786
+
+# for both
+cor(texts$comps_phw, texts$STTR, method = "pearson") #-0.1477692
+```
+
+```{r plotting object complement clauses}
+ggplot(data = texts) +
+  geom_point(mapping = aes(y = compo_phw, x = STTR)) +
+  # add regression line
+  #geom_smooth(method=lm, mapping = aes(y = parpas_phw, x = STTR_z), color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Standardised Type-Token Ratio", y = "Frequency of non-finite object complement clauses phw", title = "Standardised type-token ratio \nand frequency of non-finite object complement clauses per text") + 
+  coord_cartesian(ylim = c(0, 2))  + 
+  facet_wrap(. ~ Language)
+```
+
+```{r correlation coefficient object complement clause}
+# for German only
+cor(subset(texts, Language == "German")$compo_phw, subset(texts, Language == "German")$STTR, method = "pearson") #0.1743964
+
+# for English only
+cor(subset(texts, Language == "English")$compo_phw, subset(texts, Language == "English")$STTR, method = "pearson") #-0.2780351
+
+# for both
+cor(texts$compo_phw, texts$STTR, method = "pearson") #-0.2168929
+```
+
+
+####3.4.3.4 Information density and overt subjects
+
+```{r plotting}
+ggplot(data = subset(texts, Language == "English")) +
+  geom_point(mapping = aes(y = ovsub_phw, x = STTR)) +
+  # add regression line
+  #geom_smooth(method=lm, mapping = aes(y = parpas_phw, x = STTR_z), color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Standardised Type-Token Ratio", y = "Frequency of overt subjects phw", title = "Standardised type-token ratio \nand frequency of overrt subjects in non-finite clauses per text - English") + 
+  coord_cartesian(ylim = c(0, 0.6))
+```
+
+```{r correlation coefficient}
+# for English only
+cor(subset(texts, Language == "English")$ovsub_phw, subset(texts, Language == "English")$STTR, method = "pearson") #-0.04843233
+```
+
+
+##3.5 Relationship between text length and frequency of non-finite verb phrases
+
+Does the length of a text have an effect on the overall frequency of non-finite verb phrases?
+
+```{r no data points removed & no log-transformation}
+## not split up
+ggplot(data = texts, aes(y = NR_vp_nf, x = NR_tokens)) +
+  geom_point(aes()) +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Text length in number of tokens", y = "Count of non-finite verb phrases", 
+       title = "Text length and frequency of non-finite verb phrases per text")
+
+## split up
+ggplot(data = texts, aes(y = NR_vp_nf, x = NR_tokens)) +
+  geom_point(aes(colour = Language, fill = Language), show.legend = FALSE) +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Text length in number of tokens", y = "Count of non-finite verb phrases", title = "Text length and frequency of non-finite verb phrases per text")+ 
+  facet_wrap( ~ Language, nrow = 1)
+```
+
+Same graph but without the outliers (only data points where NR_tokens < 5000)
+
+```{r NR_tokens without outliers}
+texts_cropped = subset(texts, NR_tokens < 5000)
+
+## both languages (split up)
+ggplot(data = texts_cropped, aes(y = NR_vp_nf, x = NR_tokens)) +
+  geom_point(aes(colour = Language, fill = Language), show.legend = FALSE) +
+  geom_smooth(color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Text length in number of tokens", y = "Count of non-finite verb phrases", 
+       title = "Text length and frequency of non-finite verb phrases per text (without outliers)")+ 
+  facet_wrap( ~ Language, nrow = 1)
+
+## both languages (not split up)
+ggplot(data = texts_cropped, aes(y = NR_vp_nf, x = NR_tokens)) +
+  geom_point(aes()) +
+  geom_smooth(color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Text length in number of tokens", y = "Count of non-finite verb phrases", 
+       title = "Text length and frequency of non-finite verb phrases per text (without outliers)")
+```
+
+Same graph but without the outliers (only data points where NR_tokens < 5000) and log-transformed
+
+```{r NR_tokens without outliers & log-transformed}
+texts_cropped = subset(texts, NR_tokens < 5000) %>%
+  mutate(NR_tokens_log = log(NR_tokens))
+
+
+## both languages (split up)
+ggplot(data = texts_cropped, aes(y = NR_vp_nf, x = NR_tokens_log)) +
+  geom_point(aes(colour = Language, fill = Language), show.legend = FALSE) +
+  geom_smooth(color="grey", se=FALSE, linetype = 2) + # method=lm
+  labs(x = "Text length in log number of tokens", y = "Count of non-finite verb phrases", 
+       title = "Log text length and frequency of non-finite verb phrases per text (without outliers)")+ 
+  facet_wrap( ~ Language, nrow = 1)
+
+## both languages (not split up)
+ggplot(data = texts_cropped, aes(y = NR_vp_nf, x = NR_tokens_log)) +
+  geom_point(aes()) +
+  geom_smooth(color="grey", se=FALSE, linetype = 2) +  # method=lm 
+  labs(x = "Text length in log number of tokens", y = "Count of non-finite verb phrases", 
+       title = "Log text length and frequency of non-finite verb phrases per text (without outliers)")
+```
+
+Same graph but log-transformed
+
+```{r NR_tokens log-transformed}
+texts = texts %>%
+  mutate(NR_tokens_log = log(NR_tokens))
+
+
+## both languages (split up)
+ggplot(data = texts, aes(y = NR_vp_nf, x = NR_tokens_log)) +
+  geom_point(aes(colour = Language, fill = Language), show.legend = FALSE) +
+  geom_smooth(color="grey", se=FALSE, linetype = 2) + # method=lm
+  labs(x = "Text length in log number of tokens", y = "Count of non-finite verb phrases", 
+       title = "Log text length and frequency of non-finite verb phrases per text")+ 
+  facet_wrap( ~ Language, nrow = 1)
+
+## both languages (not split up)
+ggplot(data = texts, aes(y = NR_vp_nf, x = NR_tokens_log)) +
+  geom_point(aes()) +
+  geom_smooth(color="grey", se=FALSE, linetype = 2) +  # method=lm 
+  labs(x = "Text length in log number of tokens", y = "Count of non-finite verb phrases", 
+       title = "Log text length and frequency of non-finite verb phrases per text")
+```
+
+
+##3.6 Frequency of non-finite verb phrases plotted against frequency of finite/overall verb phrases
+
+```{r overall vps}
+## both languages (not split up)
+ggplot(data = texts, aes(x = vp_phw, y = vp_nf_phw)) +
+  geom_point() +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(y = "Frequency of non-finite verb phrases phw", x = "Frequency of all verb phrases phw", title = "Frequency of all verb phrases plotted against frequency of non-finite verb phrases") + 
+  coord_cartesian(xlim = c(0, 20))
+
+## both languages (split up)
+ggplot(data = texts, aes(x = vp_phw, y = vp_nf_phw)) +
+  geom_point(aes(colour = Language, fill = Language), show.legend = FALSE) +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(y = "Frequency of non-finite verb phrases phw", x = "Frequency of all verb phrases phw", title = "Frequency of all verb phrases plotted against frequency of non-finite verb phrases") + 
+  facet_wrap( ~ Language, nrow = 1) + 
+  coord_cartesian(xlim = c(0, 20))
+```
+
+```{r finite vps}
+## both languages (not split up)
+ggplot(data = texts, aes(x = vp_f_phw, y = vp_nf_phw)) +
+  geom_point() +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(y = "Frequency of non-finite verb phrases phw", x = "Frequency of finite verb phrases phw", title = "Frequency of finite verb phrases plotted against frequency of non-finite verb phrases") + 
+  coord_cartesian(xlim = c(0,20))
+
+## both languages (split up)
+ggplot(data = texts, aes(x = vp_f_phw, y = vp_nf_phw)) +
+  geom_point(aes(colour = Language, fill = Language), show.legend = FALSE) +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(y = "Frequency of non-finite verb phrases phw", x = "Frequency of finite verb phrases phw", title = "Frequency of finite verb phrases plotted against frequency of non-finite verb phrases", legend = FALSE) + 
+  facet_wrap( ~ Language, nrow = 1) + 
+  coord_cartesian(xlim = c(0,20))
+```
+
+##3.7 Frequency of non-finite verb forms in English and German
+
+###3.7.1. Overall
+
+```{r English summary statistics}
+## totals
+freq_types_EO = verbs_nf_EO %>%
+  group_by(verb_form) %>%
+  count()
+colnames(freq_types_EO) = c("verb_form", "freq_total")
+
+freq_types_EO = freq_types_EO %>% 
+  ## add percentages of all English non-finite vp
+  mutate(freq_rel = 100*(freq_total/(sum(freq_types_EO$freq_total)))) %>%
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "English")$NR_tokens))) 
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_types_EO
+```
+
+```{r English plotting}
+## first, reorder data frame from above
+freq_types_EO$verb_form = with(freq_types_EO, reorder(verb_form, freq_total))
+
+## plot with percentages
+ggplot(data = freq_types_EO) +
+  geom_col(mapping = aes(x = verb_form, y = freq_rel)) + 
+  labs(y = "Percentage of all non-finite verb phrases", x = "Verb forms", 
+       title = "Frequency of non-finite verb phrases in English") + 
+  geom_text(mapping = aes(x = verb_form, y = freq_rel), label = round(freq_types_EO$freq_rel, 2), hjust = -0.2) +
+  scale_y_continuous(limits = c(0, 100)) +
+  coord_flip()
+
+## plot with frequencies phw
+ggplot(data = freq_types_EO) +
+  geom_col(mapping = aes(x = verb_form, y = freq_phw)) + 
+  labs(y = "Frequency non-finite verb phrases phw", x = "Verb forms", 
+       title = "Frequency of non-finite verb phrases in English") + 
+  geom_text(mapping = aes(x = verb_form, y = freq_phw), label = round(freq_types_EO$freq_phw, 2), hjust = -0.2) +
+  scale_y_continuous(limits = c(0, 2)) +
+  coord_flip()
+```
+
+```{r German summary statistics}
+## totals
+freq_types_GO = verbs_nf_GO %>%
+  group_by(verb_form) %>%
+  count()
+colnames(freq_types_GO) = c("verb_form", "freq_total")
+
+freq_types_GO = freq_types_GO %>% 
+  ## add percentages of all German non-finite vp
+  mutate(freq_rel = 100*(freq_total/(sum(freq_types_GO$freq_total)))) %>%
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens))) 
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_types_GO
+```
+
+```{r German plotting}
+## first, reorder data frame from above
+freq_types_GO$verb_form = with(freq_types_GO, reorder(verb_form, freq_total))
+head(freq_types_GO)
+
+## plot with percentages
+ggplot(data = freq_types_GO) +
+  geom_col(mapping = aes(x = verb_form, y = freq_rel)) + 
+  labs(y = "Percentage of all non-finite verb phrases", x = "Verb forms", 
+       title = "Frequency of non-finite verb phrases in German") + 
+  geom_text(mapping = aes(x = verb_form, y = freq_rel), label = round(freq_types_GO$freq_rel, 2), hjust = -0.2) +
+  scale_y_continuous(limits = c(0, 100)) +
+  coord_flip()
+
+## plot with frequencies phw
+ggplot(data = freq_types_GO) +
+  geom_col(mapping = aes(x = verb_form, y = freq_phw)) + 
+  labs(y = "Frequency non-finite verb phrases phw", x = "Verb forms", 
+       title = "Frequency of non-finite verb phrases in German") + 
+  geom_text(mapping = aes(x = verb_form, y = freq_phw), label = round(freq_types_GO$freq_phw, 2), hjust = -0.2) +
+  scale_y_continuous(limits = c(0, 2)) +
+  coord_flip()
+```
+
+```{r both summary statistics}
+## totals
+freq_types = verbs_nf %>%
+  group_by(verb_form) %>%
+  count()
+colnames(freq_types) = c("verb_form", "freq_total")
+
+freq_types = freq_types %>% 
+  ## add percentages of all non-finite vp
+  mutate(freq_rel = 100*(freq_total/(sum(freq_types$freq_total)))) %>%
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(texts$NR_tokens))) 
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_types
+
+## create a data frame with separate values for English and German
+freq_types_GO$Language = c("German")
+freq_types_EO$Language = c("English")
+freq_types_language <- bind_rows(freq_types_GO, freq_types_EO)
+freq_types_language
+```
+
+```{r both plotting}
+## first, reorder data frame from above
+freq_types_language$verb_form = with(freq_types_language, reorder(verb_form, freq_total))
+
+## both languages dodged in one bar chart
+ggplot(data = freq_types_language) +
+  geom_col(mapping = aes(x = freq_rel, y = verb_form, fill = Language), position = "dodge") + 
+ # geom_text(mapping = aes(x = freq_rel, y = verb_form), label = round(freq_types_language$freq_rel, 2)) +
+  labs(x = "Percentage of all non-finite verb phrases (in that language)", y = "Verb form", 
+       title = "Frequency of non-finite verb phrases in English & German")
+
+## first, reorder data frame from above
+freq_types$verb_form = with(freq_types, reorder(verb_form, freq_total))
+
+## plot with percentages
+ggplot(data = freq_types) +
+  geom_col(mapping = aes(x = verb_form, y = freq_rel)) + 
+  labs(y = "Percentage of all non-finite verb phrases", x = "Verb forms", 
+       title = "Frequency of non-finite verb phrases in GECCo (English and German)") + 
+  geom_text(mapping = aes(x = verb_form, y = freq_rel), label = round(freq_types$freq_rel, 2), hjust = -0.2) +
+  scale_y_continuous(limits = c(0, 100)) +
+  coord_flip()
+
+## plot with frequencies phw
+ggplot(data = freq_types) +
+  geom_col(mapping = aes(x = verb_form, y = freq_phw)) + 
+  labs(y = "Frequency non-finite verb phrases phw", x = "Verb forms", 
+       title = "Frequency of non-finite verb phrases in GECCo (English and German)") + 
+  geom_text(mapping = aes(x = verb_form, y = freq_phw), label = round(freq_types$freq_phw, 2), hjust = -0.2) +
+  scale_y_continuous(limits = c(0, 2)) +
+  coord_flip()
+```
+
+
+###3.7.2. By Mode
+
+```{r English summary statistics}
+### written only 
+freq_types_writ_EO = verbs_nf_EO %>%
+  group_by(verb_form) %>%
+  filter(Mode == "written") %>%
+  count()
+colnames(freq_types_writ_EO) = c("verb_form", "freq_total")
+
+freq_types_writ_EO = freq_types_writ_EO %>% 
+  ## add percentages of all English non-finite vp
+  mutate(freq_rel = 100*(freq_total/(sum(freq_types_writ_EO$freq_total)))) %>%
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "English" & Mode == "written")$NR_tokens))) 
+  # number of hits divided by total number of words in the written corpus (disregarding PUNCT and SYM)
+
+### spoken only 
+freq_types_spok_EO = verbs_nf_EO %>%
+  group_by(verb_form) %>%
+  filter(Mode == "spoken") %>%
+  count()
+colnames(freq_types_spok_EO) = c("verb_form", "freq_total")
+
+freq_types_spok_EO = freq_types_spok_EO %>% 
+  ## add percentages of all English non-finite vp
+  mutate(freq_rel = 100*(freq_total/(sum(freq_types_spok_EO$freq_total)))) %>%
+  ## add frequency phw for each verb form 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "English" & Mode == "spoken")$NR_tokens))) 
+  # number of hits divided by total number of words in the spoken corpus (disregarding PUNCT and SYM)
+
+# combine into one data frame
+freq_types_writ_EO$Mode = c("written")
+freq_types_spok_EO$Mode = c("spoken")
+freq_types_Mode_EO <- bind_rows(freq_types_spok_EO, freq_types_writ_EO)
+freq_types_Mode_EO
+```
+
+```{r German summary statistics}
+### written only 
+freq_types_writ_GO = verbs_nf_GO %>%
+  group_by(verb_form) %>%
+  filter(Mode == "written") %>%
+  count()
+colnames(freq_types_writ_GO) = c("verb_form", "freq_total")
+
+freq_types_writ_GO = freq_types_writ_GO %>%
+  ## add percentages of all German non-finite vp
+  mutate(freq_rel = 100*(freq_total/(sum(freq_types_writ_GO$freq_total))))
+
+## add frequency phw for each verb form
+freq_types_writ_GO = freq_types_writ_GO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German" & Mode == "written")$NR_tokens))) 
+  # number of hits divided by total number of words in the written corpus (disregarding PUNCT and SYM)
+
+
+### spoken only 
+freq_types_spok_GO = verbs_nf_GO %>%
+  group_by(verb_form) %>%
+  filter(Mode == "spoken") %>%
+  count()
+colnames(freq_types_spok_GO) = c("verb_form", "freq_total")
+
+freq_types_spok_GO = freq_types_spok_GO %>% 
+  ## add percentages of all German non-finite vp
+  mutate(freq_rel = 100*(freq_total/(sum(freq_types_spok_GO$freq_total)))) %>% 
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German" & Mode == "spoken")$NR_tokens))) 
+  # number of hits divided by total number of words in the spoken corpus (disregarding PUNCT and SYM)
+
+
+# combine into one data frame
+freq_types_writ_GO$Mode = c("written")
+freq_types_spok_GO$Mode = c("spoken")
+freq_types_Mode_GO <- bind_rows(freq_types_spok_GO, freq_types_writ_GO)
+freq_types_Mode_GO
+```
+
+```{r both summary statistics}
+freq_types_Mode_EO$Language = c("English")
+freq_types_Mode_GO$Language = c("German")
+freq_types_Mode = bind_rows(freq_types_Mode_EO, freq_types_Mode_GO)
+freq_types_Mode
+```
+
+```{r both plotting}
+## first, reorder data frame from above
+freq_types_Mode$verb_form = with(freq_types_Mode, reorder(verb_form, freq_total))
+head(freq_types_Mode)
+
+## box plot with percentages
+ggplot(data = freq_types_Mode) +
+  geom_col(mapping = aes(x = verb_form, y = freq_rel, fill = Mode, colour = Mode), position = "dodge") + 
+  labs(y = "Percentage of all non-finite verb phrases in that Mode", x = "Verb forms", title = "Frequency of non-finite verb phrases in English & German by Mode") + 
+  facet_wrap( ~ Language) +
+#  geom_text(aes(x = verb_form, y = freq_rel, label = round(freq_types_Mode$freq_rel, 1), position = "dodge"), size = 3, vjust = 1.5) +
+  coord_flip()
+
+## box plot with frequency phw
+ggplot(data = freq_types_Mode) +
+  geom_col(mapping = aes(x = verb_form, y = freq_phw, fill = Mode, colour = Mode), position = "dodge") + 
+  labs(y = "Frequency of non-finite verb phrases phw", x = "Verb forms", title = "Frequency of non-finite verb phrases in English & German by Mode") + 
+  facet_wrap( ~ Language) +
+#  geom_text(aes(x = verb_form, y = freq_rel, label = round(freq_types_Mode$freq_rel, 1), position = "dodge"), size = 3, vjust = 1.5) +
+  coord_flip()
+```
+
+###3.7.3. By register
+
+```{r English summary statistics}
+freq_types_register_EO = registers %>%
+  subset(Language == "English") %>%
+  group_by(Register) %>%
+  summarise(infinitive_bare = mean(infbare_phw_av), infinitive_to = mean(infto_phw_av), 
+            participle_past = mean(parpas_phw_av), participle_present = mean(parpre_phw_av)) 
+
+## data wrangling
+freq_types_register_EO <- freq_types_register_EO %>%
+  gather("verb_form", "freq_phw", 2:5)
+
+freq_types_register_EO
+```
+
+```{r German summary statistics}
+freq_types_register_GO = registers %>%
+  subset(Language == "German") %>%
+  group_by(Register) %>%
+  summarise(infinitive_bare = mean(infbare_phw_av), infinitive_to = mean(infto_phw_av), 
+            participle_past = mean(parpas_phw_av), participle_present = mean(parpre_phw_av)) 
+
+## data wrangling
+freq_types_register_GO <- freq_types_register_GO %>%
+  gather("verb_form", "freq_phw", 2:5)
+
+freq_types_register_GO
+```
+
+```{r both summary statistics}
+freq_types_register_EO$Language = c("English")
+freq_types_register_GO$Language = c("German")
+freq_types_register = bind_rows(freq_types_register_EO, freq_types_register_GO)
+freq_types_register
+```
+
+```{r both plotting}
+## first, reorder data frame from above
+freq_types_register$verb_form = with(freq_types_register, reorder(verb_form, freq_phw))
+
+## box plot with frequency phw
+ggplot(data = freq_types_register) +
+  geom_col(mapping = aes(x = verb_form, y = freq_phw, fill = Language), position = "dodge") +
+  labs(y = "Frequency of non-finite verb phrases phw", x = "Verb forms", title = "Frequency of non-finite verb phrases in English & German by register") + 
+  facet_wrap( ~ Register) +
+#  geom_text(aes(x = verb_form, y = freq_rel, label = round(freq_types_Mode$freq_rel, 1), position = "dodge"), size = 3, vjust = 1.5) +
+  coord_flip()
+```
+
+```{r both computing difference value}
+## first, reorder df from above to be in long format (one column phw-count in English, one column phw-count in German)
+freq_types_register_diff <- freq_types_register %>%
+  select(verb_form, Register, freq_phw, Language) %>%
+  pivot_wider(names_from = Language, values_from = freq_phw, names_prefix = "phw_")
+
+## replace NAs with 0
+for (n in 1:nrow(freq_types_register_diff)) {
+if (is.na(freq_types_register_diff[n, 4])) { # 4 indicates the 4th column, which is phw_German
+  freq_types_register_diff[n, 4] <- 0 }
+}
+
+## subtract phw-count in German from phw-count in English and save in new column phw_diff
+freq_types_register_diff <- freq_types_register_diff %>%
+  mutate(phw_diff = phw_English - phw_German)
+  
+freq_types_register_diff
+```
+
+```{r both plotting difference value}
+## first, reorder data frame from above
+freq_types_register_diff$verb_form = with(freq_types_register_diff, reorder(verb_form, phw_diff))
+
+## box plot with frequency phw
+ggplot(data = freq_types_register_diff) +
+  geom_col(mapping = aes(x = verb_form, y = phw_diff)) +
+  labs(y = "Difference in phw-Frequency (phw_English - phw_German)", x = "Verb forms", title = "Frequency differences (phw) of non-finite verb phrases \nin English & German by register") + 
+  facet_wrap( ~ Register) +
+#  geom_text(aes(x = verb_form, y = freq_rel, label = round(freq_types_Mode$freq_rel, 1), position = "dodge"), size = 3, vjust = 1.5) +
+  coord_flip()
+```
+
+
+##3.8 Frequency of types of dependent clauses in English and German
+
+###3.8.1 Overall
+
+```{r English summary statistics}
+## totals
+freq_funct_EO = verbs_nf_EO %>%
+  group_by(clause_type) %>%
+  count()
+colnames(freq_cltype_EO) = c("clause_type", "freq_total")
+freq_funct_EO$clause_type = with(freq_cltype_EO, reorder(clause_type, freq_total))
+
+freq_funct_EO = freq_cltype_EO %>% 
+         ## add percentages of all English non-finite vp
+  mutate(freq_rel = 100*(freq_total/(sum(freq_cltype_EO$freq_total))), 
+         ## add frequency phw for each verb form
+         freq_phw = 100*(freq_total/sum(subset(texts, Language == "English")$NR_tokens)))
+          # number of hits divided by total number of words in the corpurs (disregrading PUNCT and SYM)
+
+freq_cltype_EO
+
+
+freq_cltype_form_EO = verbs_nf_EO %>%
+  group_by(clause_type, verb_form) %>%
+  count()
+colnames(freq_cltype_form_EO) = c("clause_type", "verb_form", "freq_total")
+freq_cltype_form_EO$clause_type = with(freq_cltype_form_EO, reorder(clause_type, freq_total))
+
+freq_cltype_form_EO = freq_cltype_form_EO %>% 
+         ## add percentages of all English non-finite vp
+  mutate(freq_rel = 100*(freq_total/(sum(freq_cltype_form_EO$freq_total))),
+         ## add frequency phw for each verb form
+         freq_phw = 100*(freq_total/sum(subset(texts, Language == "English")$NR_tokens)))
+         # number of hits divided by total number of words in the corpurs (disregrading PUNCT and SYM)
+
+freq_cltype_form_EO
+```
+
+```{r English plotting}
+## general plot
+freq_cltype_EO$clause_type = with(freq_cltype_EO, reorder(clause_type, freq_phw))
+head(freq_cltype_EO)
+
+ggplot(data = freq_cltype_EO) +
+  geom_col(mapping = aes(x = clause_type, y = freq_phw)) + 
+  labs(y = "Frequency phw", x = "Type of dependent clause", title = "Frequency phw of non-finite verb phrases in English \ndivided by type of dependent clause") +
+  geom_text(mapping = aes(x = clause_type, y = freq_phw), label = round(freq_cltype_EO$freq_phw, digits = 2), hjust = -0.5) +
+  scale_y_continuous(limits = c(0, 4)) +
+  coord_flip()
+
+## plot divided by verb forms
+freq_cltype_form_EO$clause_type = with(freq_cltype_form_EO, reorder(clause_type, freq_phw))
+
+ggplot(data = freq_cltype_form_EO) +
+  geom_col(mapping = aes(x = clause_type, y = freq_phw)) + 
+  labs(y = "Frequency phw", x = "Type of dependent clause", title = "Frequency phw of non-finite verb phrases in English \ndivided by type of dependent clause and verb form") +
+  #geom_text(mapping = aes(x = clause_type, y = freq_phw), label = round(freq_cltype_EO$freq_phw, digits = 2), hjust = -0.5) +
+  scale_y_continuous(limits = c(0, 2)) +
+  facet_wrap(~ verb_form) +
+  coord_flip()
+```
+
+```{r German summary statistics}
+## totals
+freq_cltype_GO = verbs_nf_GO %>%
+  group_by(clause_type) %>%
+  count()
+colnames(freq_cltype_GO) = c("clause_type", "freq_total")
+
+
+freq_cltype_GO = freq_cltype_GO %>% 
+         ## add percentages of all German non-finite vp
+  mutate(freq_rel = 100*(freq_total/(sum(freq_cltype_GO$freq_total))),
+         ## add frequency phw for each verb form
+         freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens)))
+         # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_cltype_GO
+
+
+freq_cltype_form_GO = verbs_nf_GO %>%
+  group_by(clause_type, verb_form) %>%
+  count()
+colnames(freq_cltype_form_GO) = c("clause_type", "verb_form", "freq_total")
+freq_cltype_form_GO$clause_type = with(freq_cltype_form_GO, reorder(clause_type, freq_total))
+
+
+freq_cltype_form_GO = freq_cltype_form_GO %>% 
+         ## add percentages of all English non-finite vp
+  mutate(freq_rel = 100*(freq_total/(sum(freq_cltype_form_GO$freq_total))),
+         ## add frequency phw for each verb form
+         freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens)))
+         # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_cltype_form_GO
+```
+
+```{r German plotting}
+## general plot
+freq_cltype_GO$clause_type = with(freq_cltype_GO, reorder(clause_type, freq_phw))
+
+ggplot(data = freq_cltype_GO) +
+  geom_col(mapping = aes(x = clause_type, y = freq_phw)) + 
+  labs(y = "Frequency phw", x = "Type of dependent clause", title = "Frequency phw of non-finite verb phrases in German \ndivided by type of dependent clause") +
+  geom_text(mapping = aes(x = clause_type, y = freq_phw), label = round(freq_cltype_GO$freq_phw, digits = 2), hjust = -0.5) +
+  scale_y_continuous(limits = c(0, 4)) +
+  coord_flip()
+
+## plot divided by verb forms
+freq_cltype_form_GO$clause_type = with(freq_cltype_form_GO, reorder(clause_type, freq_phw))
+
+ggplot(data = freq_cltype_form_GO) +
+  geom_col(mapping = aes(x = clause_type, y = freq_phw)) + 
+  labs(y = "Frequency phw", x = "Type of dependent clause", title = "Frequency phw of non-finite verb phrases in German \ndivided by type of dependent clause and verb form") +
+  #geom_text(mapping = aes(x = clause_type, y = freq_phw), label = round(freq_cltype_GO$freq_phw, digits = 2), hjust = -0.5) +
+  scale_y_continuous(limits = c(0, 2)) +
+  facet_wrap(~ verb_form) +
+  coord_flip()
+```
+
+```{r both summary statistics}
+## totals
+freq_cltype = verbs_nf %>%
+  group_by(clause_type) %>%
+  count()
+colnames(freq_cltype) = c("clause_type", "freq_total")
+
+
+freq_cltype = freq_cltype %>% 
+         ## add percentages of all non-finite vp
+  mutate(freq_rel = 100*(freq_total/(sum(freq_cltype$freq_total))),
+         ## add frequency phw for each verb form
+         freq_phw = 100*(freq_total/sum(texts$NR_tokens)))
+         # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_cltype
+
+freq_cltype_EO$Language = c("English")
+freq_cltype_GO$Language = c("German")
+freq_cltype_both = bind_rows(freq_cltype_EO, freq_cltype_GO)
+freq_cltype_both
+
+freq_cltype_form_EO$Language = c("English")
+freq_cltype_form_GO$Language = c("German")
+freq_cltype_form_both = bind_rows(freq_cltype_form_EO, freq_cltype_form_GO)
+freq_cltype_form_both
+```
+
+```{r both plotting}
+## box plot with percentages
+ggplot(data = freq_cltype) +
+  geom_col(mapping = aes(x = clause_type, y = freq_rel)) + 
+  labs(y = "Percentage of all non-finite verb phrases", x = "Type of dependent clause", 
+       title = "Frequency of non-finite verb phrases in English & German by type of dependent clause") + 
+#  facet_wrap( ~ Language) +
+#  geom_text(aes(x = verb_form, y = freq_rel, label = round(freq_types_Mode$freq_rel, 1), position = "dodge"), size = 3, vjust = 1.5) +
+  coord_flip()
+
+## first, reorder data frame from above
+freq_cltype_both$clause_type = with(freq_cltype_both, reorder(clause_type, freq_rel))
+head(freq_cltype_both)
+
+ggplot(data = freq_cltype_both) +
+  geom_col(mapping = aes(x = clause_type, y = freq_phw, color = Language, fill = Language), position = "dodge") + 
+  labs(y = "Frequency phw", x = "Type of dependent clause", 
+       title = "Frequency of non-finite verb phrases in English & German by type of dependent clause") + 
+#  geom_text(aes(x = clause_type, y = freq_phw, label = round(freq_cltype_both$freq_phw, 2)), size = 3) +
+  coord_flip()
+
+## first, reorder data frame from above
+freq_cltype_form_both$clause_type = with(freq_cltype_form_both, reorder(clause_type, freq_rel))
+head(freq_cltype_form_both)
+
+ggplot(data = freq_cltype_form_both) +
+  geom_col(mapping = aes(x = clause_type, y = freq_phw, fill = Language), position = "dodge") + 
+  labs(y = "Frequency phw", x = "Type of dependent clause", 
+       title = "Frequency of non-finite verb phrases by type of dependent clause \nin English & German by verb form") + 
+#  geom_text(aes(x = clause_type, y = freq_phw, label = round(freq_cltype_both$freq_phw, 2)), size = 3) +
+  facet_wrap( ~ verb_form) +
+  coord_flip()
+
+ggplot(data = freq_cltype_form_both) +
+  geom_col(mapping = aes(x = clause_type, y = freq_rel, fill = Language), position = "dodge") + 
+  labs(y = "Percentage out of all non-finite vps", x = "Type of dependent clause", 
+       title = "Percentage of non-finite verb phrases by type of dependent clause \nin English & German by verb form") + 
+#  geom_text(aes(x = clause_type, y = freq_phw, label = round(freq_cltype_both$freq_phw, 2)), size = 3) +
+  facet_wrap( ~ verb_form) +
+  coord_flip()
+
+## add numbers to each bar!
+```
+
+###3.8.2 Divided by Mode
+
+```{r English summary statistics}
+### written only 
+
+## totals
+freq_cltype_writ_EO = verbs_nf_EO %>%
+  group_by(clause_type) %>%
+  filter(Mode == "written") %>%
+  count()
+colnames(freq_cltype_writ_EO) = c("clause_type", "freq_total")
+freq_cltype_writ_EO$clause_type = with(freq_cltype_writ_EO, reorder(clause_type, freq_total))
+
+
+freq_cltype_writ_EO = freq_cltype_writ_EO %>% 
+         ## add percentages of all English non-finite vp
+  mutate(freq_rel = 100*(freq_total/(sum(freq_cltype_writ_EO$freq_total))),
+         ## add frequency phw for each verb form
+         freq_phw = 100*(freq_total/sum(subset(texts, Language == "English" & Mode == "written")$NR_tokens)))
+         # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_cltype_writ_EO
+
+### spoken only 
+
+## totals
+freq_cltype_spok_EO = verbs_nf_EO %>%
+  group_by(clause_type) %>%
+  filter(Mode == "spoken") %>%
+  count()
+colnames(freq_cltype_spok_EO) = c("clause_type", "freq_total")
+freq_cltype_spok_EO$clause_type = with(freq_cltype_spok_EO, reorder(clause_type, freq_total))
+
+
+freq_cltype_spok_EO = freq_cltype_spok_EO %>% 
+         ## add percentages of all English non-finite vp
+  mutate(freq_rel = 100*(freq_total/(sum(freq_cltype_spok_EO$freq_total))),
+         ## add frequency phw for each verb form
+         freq_phw = 100*(freq_total/sum(subset(texts, Language == "English" & Mode == "spoken")$NR_tokens)))
+         # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_cltype_spok_EO
+
+freq_cltype_writ_EO$Mode = c("written")
+freq_cltype_spok_EO$Mode = c("spoken")
+# combine into one data frame
+freq_cltype_Mode_EO <- bind_rows(freq_cltype_spok_EO, freq_cltype_writ_EO)
+
+```
+
+```{r German summary statistics}
+### written only 
+
+## totals
+freq_cltype_writ_GO = verbs_nf_GO %>%
+  group_by(clause_type) %>%
+  filter(Mode == "written") %>%
+  count()
+colnames(freq_cltype_writ_GO) = c("clause_type", "freq_total")
+freq_cltype_writ_GO$clause_type = with(freq_cltype_writ_GO, reorder(clause_type, freq_total))
+
+## add percentages of all German non-finite vp
+freq_cltype_writ_GO = freq_cltype_writ_GO %>% 
+  mutate(freq_rel = 100*(freq_total/(sum(freq_cltype_writ_GO$freq_total))))
+
+## add frequency phw for each verb form
+freq_cltype_writ_GO = freq_cltype_writ_GO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German" & Mode == "written")$NR_tokens))) 
+  # number of hits divided by total number of words in the corpus (disregadring PUNCT and SYM)
+
+freq_cltype_writ_GO
+
+### spoken only 
+
+## totals
+freq_cltype_spok_GO = verbs_nf_GO %>%
+  group_by(clause_type) %>%
+  filter(Mode == "spoken") %>%
+  count()
+colnames(freq_cltype_spok_GO) = c("clause_type", "freq_total")
+freq_cltype_spok_GO$clause_type = with(freq_cltype_spok_GO, reorder(clause_type, freq_total))
+
+## add percentages of all German non-finite vp
+freq_cltype_spok_GO = freq_cltype_spok_GO %>% 
+  mutate(freq_rel = 100*(freq_total/(sum(freq_cltype_spok_GO$freq_total))))
+
+## add frequency phw for each verb form
+freq_cltype_spok_GO = freq_cltype_spok_GO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German" & Mode == "spoken")$NR_tokens))) 
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_cltype_spok_GO
+
+freq_cltype_writ_GO$Mode = c("written")
+freq_cltype_spok_GO$Mode = c("spoken")
+# combine into one data frame
+freq_cltype_Mode_GO <- bind_rows(freq_cltype_spok_GO, freq_cltype_writ_GO)
+```
+
+```{r both summary statistics}
+### written only 
+
+## totals
+freq_cltype_writ = verbs_nf %>%
+  group_by(clause_type) %>%
+  filter(Mode == "written") %>%
+  count()
+colnames(freq_cltype_writ) = c("clause_type", "freq_total")
+freq_cltype_writ$clause_type = with(freq_cltype_writ, reorder(clause_type, freq_total))
+
+## add percentages of all non-finite vp
+freq_cltype_writ = freq_cltype_writ %>% 
+  mutate(freq_rel = 100*(freq_total/(sum(freq_cltype_writ$freq_total))))
+
+## add frequency phw for each verb form
+freq_cltype_writ = freq_cltype_writ %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Mode == "written")$NR_tokens))) 
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_cltype_writ
+
+### spoken only 
+
+## totals
+freq_cltype_spok = verbs_nf %>%
+  group_by(clause_type) %>%
+  filter(Mode == "spoken") %>%
+  count()
+colnames(freq_cltype_spok) = c("clause_type", "freq_total")
+freq_cltype_spok$clause_type = with(freq_cltype_spok, reorder(clause_type, freq_total))
+
+## add percentages of all non-finite vp
+freq_cltype_spok = freq_cltype_spok %>% 
+  mutate(freq_rel = 100*(freq_total/(sum(freq_cltype_spok$freq_total))))
+
+## add frequency phw for each verb form
+freq_cltype_spok = freq_cltype_spok %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Mode == "spoken")$NR_tokens))) 
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_cltype_spok
+
+freq_cltype_Mode_EO$Language = c("English")
+freq_cltype_Mode_GO$Language = c("German")
+freq_cltype_Mode_both = bind_rows(freq_cltype_Mode_EO, freq_cltype_Mode_GO)
+freq_cltype_Mode_both
+```
+
+```{r both plotting}
+## first, reorder data frame from above
+freq_cltype_Mode_both$clause_type = with(freq_cltype_Mode_both, reorder(clause_type, freq_rel))
+head(freq_cltype_Mode_both)
+
+ggplot(data = freq_cltype_Mode_both) +
+  geom_col(mapping = aes(x = clause_type, y = freq_phw, fill = Mode, color = Mode), position = "dodge") + 
+  labs(y = "Frequency phw", x = "Type of dependent clause", 
+       title = "Frequency of non-finite verb phrases by type of dependent clause \nin English & German by Mode") + 
+#  geom_text(aes(x = clause_type, y = freq_phw, label = round(freq_cltype_both$freq_phw, 2)), size = 3) +
+  facet_wrap( ~ Language) +
+  coord_flip()
+
+
+ggplot(data = freq_cltype_Mode_both) +
+  geom_col(mapping = aes(x = clause_type, y = freq_rel, fill = Mode, color = Mode), position = "dodge") + 
+  labs(y = "Percentage", x = "Type of dependent clause", 
+       title = "Percentage of clause types out of all non-finite verb phrases \nin English & German by Mode") + 
+#  geom_text(aes(x = clause_type, y = freq_phw, label = round(freq_funct_both$freq_phw, 2)), size = 3) +
+  facet_wrap( ~ Language) +
+  coord_flip()
+```
+
+###3.8.3 Divided by register
+
+```{r English summary statistics}
+freq_cltype_register_EO = registers %>%
+  subset(Language == "English") %>%
+  group_by(Register) %>%
+  summarise(adverbial = mean(adv_phw_av), embedded = mean(emb_phw_av), nominal = mean(nom_phw_av), independent = mean(ind_phw_av)) 
+
+## data wrangling
+freq_cltype_register_EO <- freq_cltype_register_EO %>%
+  gather("clause_type", "freq_phw", 2:5)
+
+freq_cltype_register_EO
+```
+
+```{r German summary statistics}
+freq_cltype_register_GO = registers %>%
+  subset(Language == "German") %>%
+  group_by(Register) %>%
+  summarise(adverbial = mean(adv_phw_av), embedded = mean(emb_phw_av), nominal = mean(nom_phw_av), independent = mean(ind_phw_av)) 
+
+## data wrangling
+freq_cltype_register_GO <- freq_cltype_register_GO %>%
+  gather("clause_type", "freq_phw", 2:5)
+
+freq_cltype_register_GO
+```
+
+```{r both summary statistics}
+freq_cltype_register_EO$Language = c("English")
+freq_cltype_register_GO$Language = c("German")
+freq_cltype_register = bind_rows(freq_cltype_register_EO, freq_cltype_register_GO)
+freq_cltype_register
+```
+
+```{r both plotting}
+## first, reorder data frame from above
+freq_cltype_register$clause_type = with(freq_cltype_register, reorder(clause_type, freq_phw))
+
+## box plot with frequency phw
+ggplot(data = freq_cltype_register) +
+  geom_col(mapping = aes(x = clause_type, y = freq_phw, fill = Language), position = "dodge") +
+  labs(y = "Frequency phw", x = "Type of dependent clause", title = "Frequency of types of dependent clauses in English & German by register") + 
+  facet_wrap( ~ Register) +
+#  geom_text(aes(x = verb_form, y = freq_rel, label = round(freq_types_Mode$freq_rel, 1), position = "dodge"), size = 3, vjust = 1.5) +
+  coord_flip()
+```
+
+```{r computing difference value}
+## first, reorder df from above to be in long format (one column phw-count in English, one column phw-count in German)
+freq_cltype_register_diff <- freq_cltype_register %>%
+  select(clause_type, Register, freq_phw, Language) %>%
+  pivot_wider(names_from = Language, values_from = freq_phw, names_prefix = "phw_")
+
+## subtract phw-count in German from phw-count in English and save in new column phw_diff
+freq_cltype_register_diff <- freq_cltype_register_diff %>%
+  mutate(phw_diff = phw_English - phw_German)
+  
+freq_cltype_register_diff
+```
+
+```{r both plotting difference value}
+## first, reorder data frame from above
+freq_cltype_register_diff$clause_type = with(freq_cltype_register_diff, reorder(clause_type, phw_diff))
+
+## box plot with frequency phw
+ggplot(data = freq_cltype_register_diff) +
+  geom_col(mapping = aes(x = clause_type, y = phw_diff)) +
+  labs(y = "Difference in phw-Frequency (phw_English - phw_German)", x = "Type of dependent clause", title = "Frequency differences (phw) of types of dependent clauses \nin English & German by register") + 
+  facet_wrap( ~ Register) +
+#  geom_text(aes(x = verb_form, y = freq_rel, label = round(freq_types_Mode$freq_rel, 1), position = "dodge"), size = 3, vjust = 1.5) +
+  coord_flip()
+```
+
+
+##3.9 Frequency of overt subjects in English and German
+
+###3.9.1 Overall
+
+```{r English summary statistics}
+## totals
+freq_ovsubj_EO = verbs_nf_EO %>%
+  group_by(overt_subject) %>%
+  count()
+colnames(freq_ovsubj_EO) = c("overrt_subject", "freq_total")
+
+## add percentages of all English non-finite vp
+freq_pvsubj_EO = freq_ovsubj_EO %>% 
+  mutate(freq_rel = freq_total/(sum(freq_ovsubj_EO$freq_total)))
+
+## add frequency phw for each verb form
+freq_ovsubj_EO = freq_ovsubj_EO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "English")$NR_tokens))) 
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_EO
+```
+
+```{r English summary statistics by verb form}
+## totals
+freq_ovsubj_form_EO = verbs_nf_EO %>%
+  group_by(overt_subject, verb_form) %>%
+  count()
+colnames(freq_ovsubj_form_EO) = c("overt_subject", "verb_form", "freq_total")
+
+## add frequency phw for each verb form
+freq_ovsubj_form_EO = freq_ovsubj_form_EO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "English")$NR_tokens))) 
+  # number of hits divided by total number of words in the corpus (disregraring PUNCT and SYM)
+
+## add percentages of all English non-finite vp
+freq_ovsubj_form_EO_paspart <- freq_ovsubj_form_EO %>% 
+  filter(verb_form == "participle_past") 
+freq_ovsubj_form_EO_paspart <- freq_ovsubj_form_EO_paspart %>%
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_EO_paspart$freq_total))))
+
+freq_ovsubj_form_EO_prespart <- freq_ovsubj_form_EO %>% 
+  filter(verb_form == "participle_present") 
+freq_ovsubj_form_EO_prespart <- freq_ovsubj_form_EO_prespart %>%
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_EO_prespart$freq_total))))
+
+freq_ovsubj_form_EO_infbare <- freq_ovsubj_form_EO %>% 
+  filter(verb_form == "infinitive_bare") 
+freq_ovsubj_form_EO_infbare <- freq_ovsubj_form_EO_infbare %>%
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_EO_infbare$freq_total))))
+
+freq_ovsubj_form_EO_infto <- freq_ovsubj_form_EO %>% 
+  filter(verb_form == "infinitive_to") 
+freq_ovsubj_form_EO_infto <- freq_ovsubj_form_EO_infto %>%
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_EO_infto$freq_total))))
+
+freq_ovsubj_form_EO = bind_rows(freq_ovsubj_form_EO_infto, freq_ovsubj_form_EO_infbare, freq_ovsubj_form_EO_prespart, freq_ovsubj_form_EO_paspart)
+freq_ovsubj_form_EO
+```
+
+```{r English summary statistics in nominal clauses by verb form}
+## subject clauses
+freq_ovsubj_form_subjcl_EO = verbs_nf_EO %>%
+  filter(clause_type == "nominal", nomclause_function == "subject") %>%
+  group_by(overt_subject, verb_form) %>%
+  count()
+colnames(freq_ovsubj_form_subjcl_EO) = c("overt_subject", "verb_form", "freq_total")
+
+freq_ovsubj_form_subjcl_EO = freq_ovsubj_form_subjcl_EO %>% 
+  ## add percentages of all German non-finite subject clauses
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_subjcl_EO$freq_total)))) %>% 
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens)))
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_form_subjcl_EO
+
+## object clauses
+freq_ovsubj_form_objcl_EO = verbs_nf_EO %>%
+  filter(clause_type == "nominal", nomclause_function == "object") %>%
+  group_by(overt_subject, verb_form) %>%
+  count()
+colnames(freq_ovsubj_form_objcl_EO) = c("overt_subject", "verb_form", "freq_total")
+
+freq_ovsubj_form_objcl_EO = freq_ovsubj_form_objcl_EO %>% 
+  ## add percentages of all German non-finite subject clauses
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_objcl_EO$freq_total)))) %>% 
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens)))
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_form_objcl_EO
+
+## subject complement clauses
+freq_ovsubj_form_subjccl_EO = verbs_nf_EO %>%
+  filter(clause_type == "nominal", nomclause_function == "complement_subject") %>%
+  group_by(overt_subject, verb_form) %>%
+  count()
+colnames(freq_ovsubj_form_subjccl_EO) = c("overt_subject", "verb_form", "freq_total")
+
+freq_ovsubj_form_subjccl_EO = freq_ovsubj_form_subjccl_EO %>% 
+  ## add percentages of all German non-finite subject clauses
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_subjccl_EO$freq_total)))) %>% 
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens)))
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_form_subjccl_EO
+
+## object complement clauses
+freq_ovsubj_form_objccl_EO = verbs_nf_EO %>%
+  filter(clause_type == "nominal", nomclause_function == "complement_object") %>%
+  group_by(overt_subject, verb_form) %>%
+  count()
+colnames(freq_ovsubj_form_objccl_EO) = c("overt_subject", "verb_form", "freq_total")
+
+freq_ovsubj_form_objccl_EO = freq_ovsubj_form_objccl_EO %>% 
+  ## add percentages of all German non-finite subject clauses
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_objccl_EO$freq_total)))) %>% 
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens)))
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_form_objccl_EO
+```
+
+```{r English summary statistics in embedded clauses by verb form}
+freq_ovsubj_form_embcl_EO = verbs_nf_EO %>%
+  filter(clause_type == "embedded") %>%
+  group_by(overt_subject, verb_form) %>%
+  count()
+colnames(freq_ovsubj_form_embcl_EO) = c("overt_subject", "verb_form", "freq_total")
+
+freq_ovsubj_form_embcl_EO = freq_ovsubj_form_embcl_EO %>% 
+  ## add percentages of all English non-finite embedded clauses
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_embcl_EO$freq_total)))) %>% 
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "English")$NR_tokens)))
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_form_embcl_EO
+```
+
+```{r English summary statistics in adverbial clauses by verb form}
+freq_ovsubj_form_advcl_EO = verbs_nf_EO %>%
+  filter(clause_type == "adverbial") %>%
+  group_by(overt_subject, verb_form) %>%
+  count()
+colnames(freq_ovsubj_form_advcl_EO) = c("overt_subject", "verb_form", "freq_total")
+
+freq_ovsubj_form_advcl_EO = freq_ovsubj_form_advcl_EO %>% 
+  ## add percentages of all English non-finite adverbial clauses
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_advcl_EO$freq_total)))) %>% 
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "English")$NR_tokens)))
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_form_advcl_EO
+```
+
+```{r English plotting}
+## first, reorder data frame from above
+freq_ovsubj_form_EO$verb_form = with(freq_ovsubj_form_EO, reorder(verb_form, freq_phw))
+
+## frequency phw
+ggplot(data = freq_ovsubj_form_EO) +
+  geom_col(mapping = aes(x = verb_form, y = freq_phw, fill = overt_subject), position = "dodge") + 
+  labs(y = "Frequency phw", x = "Verb forms", title = "Relative Frequency of non-finite verb phrases in English \nwith and without overt subject") +
+  coord_flip()
+
+## first, reorder data frame from above
+overt_only = subset(freq_ovsubj_form_EO, overt_subject == "yes")
+overt_only$verb_form = with(overt_only, reorder(verb_form, freq_rel))
+
+## percentages
+ggplot(data = overt_only) +
+  geom_col(mapping = aes(x = verb_form, y = freq_rel), show.legend = FALSE) +
+  labs(y = "Percentage", x = "Verb forms", title = "Percentage of non-finite verb phrases in English \nwith overt subject") +
+  geom_text(aes(x = verb_form, y = freq_rel, label = round(overt_only$freq_rel, 1), position = "dodge"), size = 3, hjust = -0.5) + 
+  coord_cartesian(ylim = c(0, 8))  +
+  coord_flip()
+```
+
+```{r German summary statistics}
+## totals
+freq_ovsubj_GO = verbs_nf_GO %>%
+  group_by(overt_subject) %>%
+  count()
+colnames(freq_ovsubj_GO) = c("overt_subject", "freq_total")
+
+## add percentages of all German non-finite vp
+freq_ovsubj_GO = freq_ovsubj_GO %>% 
+  mutate(freq_rel = freq_total/(sum(freq_ovsubj_GO$freq_total)))
+
+## add frequency phw for each verb form
+freq_ovsubj_GO = freq_ovsubj_GO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens))) 
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_GO
+```
+
+```{r German summary statistics in nominal clauses by verb form}
+## subject clauses
+freq_ovsubj_form_subjcl_GO = verbs_nf_GO %>%
+  filter(clause_type == "nominal", nomclause_function == "subject") %>%
+  group_by(overt_subject, verb_form) %>%
+  count()
+colnames(freq_ovsubj_form_subjcl_GO) = c("overt_subject", "verb_form", "freq_total")
+
+freq_ovsubj_form_subjcl_GO = freq_ovsubj_form_subjcl_GO %>% 
+  ## add percentages of all German non-finite subject clauses
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_subjcl_GO$freq_total)))) %>% 
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens)))
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_form_subjcl_GO
+
+## object clauses
+freq_ovsubj_form_objcl_GO = verbs_nf_GO %>%
+  filter(clause_type == "nominal", nomclause_function == "object") %>%
+  group_by(overt_subject, verb_form) %>%
+  count()
+colnames(freq_ovsubj_form_objcl_GO) = c("overt_subject", "verb_form", "freq_total")
+
+freq_ovsubj_form_objcl_GO = freq_ovsubj_form_objcl_GO %>% 
+  ## add percentages of all German non-finite subject clauses
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_objcl_GO$freq_total)))) %>% 
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens)))
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_form_objcl_GO
+
+## subject complement clauses
+freq_ovsubj_form_subjccl_GO = verbs_nf_GO %>%
+  filter(clause_type == "nominal", nomclause_function == "complement_subject") %>%
+  group_by(overt_subject, verb_form) %>%
+  count()
+colnames(freq_ovsubj_form_subjccl_GO) = c("overt_subject", "verb_form", "freq_total")
+
+freq_ovsubj_form_subjccl_GO = freq_ovsubj_form_subjccl_GO %>% 
+  ## add percentages of all German non-finite subject clauses
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_subjccl_GO$freq_total)))) %>% 
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens)))
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_form_subjccl_GO
+
+## object complement clauses
+freq_ovsubj_form_objccl_GO = verbs_nf_GO %>%
+  filter(clause_type == "nominal", nomclause_function == "complement_object") %>%
+  group_by(overt_subject, verb_form) %>%
+  count()
+colnames(freq_ovsubj_form_objccl_GO) = c("overt_subject", "verb_form", "freq_total")
+
+freq_ovsubj_form_objccl_GO = freq_ovsubj_form_objccl_GO %>% 
+  ## add percentages of all German non-finite subject clauses
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_objccl_GO$freq_total)))) %>% 
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens)))
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_form_objccl_GO
+```
+
+```{r German summary statistics in embedded clauses by verb form}
+freq_ovsubj_form_modcl_GO = verbs_nf_GO %>%
+  filter(clause_type == "embedded") %>%
+  group_by(overt_subject, verb_form) %>%
+  count()
+colnames(freq_ovsubj_form_modcl_GO) = c("overt_subject", "verb_form", "freq_total")
+
+freq_ovsubj_form_modcl_GO = freq_ovsubj_form_modcl_GO %>% 
+  ## add percentages of all German non-finite embedded clauses
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_modcl_GO$freq_total)))) %>% 
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens)))
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_form_modcl_GO
+```
+
+```{r German sumamry statistics in adverbial clauses by verb form}
+freq_ovsubj_form_advcl_GO = verbs_nf_GO %>%
+  filter(clause_type == "adverbial") %>%
+  group_by(overt_subject, verb_form) %>%
+  count()
+colnames(freq_ovsubj_form_advcl_GO) = c("overt_subject", "verb_form", "freq_total")
+
+freq_ovsubj_form_advcl_GO = freq_ovsubj_form_advcl_GO %>% 
+  ## add percentages of all English non-finite adverbial clauses
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_advcl_GO$freq_total)))) %>% 
+  ## add frequency phw for each verb form
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "English")$NR_tokens)))
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_form_advcl_GO
+```
+
+```{r both summary statistics}
+## totals
+freq_ovsubj = verbs_nf %>%
+  group_by(overt_subject) %>%
+  count()
+colnames(freq_ovsubj) = c("overt_subject", "freq_total")
+
+## add percentages of all non-finite vp
+freq_ovsubj = freq_ovsubj %>% 
+  mutate(freq_rel = freq_total/(sum(freq_ovsubj$freq_total)))
+
+## add frequency phw for each verb form
+freq_ovsubj = freq_ovsubj %>% 
+  mutate(freq_phw = 100*(freq_total/sum(texts$NR_tokens))) 
+  # number of hits divided by total number of words in the corpus (disregraring PUNCT and SYM)
+
+freq_ovsubj
+```
+
+###3.9.2 Divided by Mode
+
+```{r English summary statistics}
+### written only
+
+## totals
+freq_ovsubj_writ_EO = verbs_nf_EO %>%
+  group_by(overt_subject) %>%
+  filter(Mode == "written") %>%
+  count()
+colnames(freq_ovsubj_writ_EO) = c("overt_subject", "freq_total")
+
+## add percentages of all English non-finite vp in the written component of the data
+freq_ovsubj_writ_EO = freq_ovsubj_writ_EO %>% 
+  mutate(freq_rel = freq_total/(sum(freq_ovsubj_writ_EO$freq_total)))
+
+## add frequency phw for each verb form
+freq_ovsubj_writ_EO = freq_ovsubj_writ_EO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "English" & Mode == "written")$NR_tokens))) 
+  # number of hits divided by total number of words in the written part of the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_writ_EO
+
+
+### spoken only
+
+## totals
+freq_ovsubj_spok_EO = verbs_nf_EO %>%
+  group_by(overt_subject) %>%
+  filter(Mode == "spoken") %>%
+  count()
+colnames(freq_ovsubj_spok_EO) = c("overt_subject", "freq_total")
+
+## add percentages of all English non-finite vp
+freq_ovsubj_spok_EO = freq_pvsubj_spok_EO %>% 
+  mutate(freq_rel = freq_total/(sum(freq_ovsubj_spok_EO$freq_total)))
+
+## add frequency phw for each verb form
+freq_ovsubj_spok_EO = freq_ovsubj_spok_EO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "English" & Mode == "spoken")$NR_tokens))) 
+  # number of hits divided by total number of words in the spoken part of the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_spok_EO
+```
+
+```{r English summary statistics by verb form}
+### written only
+
+## totals
+freq_ovsubj_form_writ_EO = verbs_nf_EO %>%
+  group_by(overt_subject, verb_form) %>%
+  filter(Mode == "written") %>%
+  count()
+colnames(freq_ovsubj_form_writ_EO) = c("overt_subject", "verb_form", "freq_total")
+
+## add percentages of all English non-finite vp
+freq_ovsubj_form_writ_EO_paspart <- freq_ovsubj_form_writ_EO %>% 
+  filter(verb_form == "participle_past") 
+freq_ovsubj_form_writ_EO_paspart <- freq_ovsubj_form_writ_EO_paspart %>%
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_writ_EO_paspart$freq_total))))
+
+freq_ovsubj_form_writ_EO_prespart <- freq_ovsubj_form_writ_EO %>% 
+  filter(verb_form == "participle_present") 
+freq_ovsubj_form_writ_EO_prespart <- freq_ovsubj_form_writ_EO_prespart %>%
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_writ_EO_prespart$freq_total))))
+
+freq_ovsubj_form_writ_EO_infbare <- freq_ovsubj_form_writ_EO %>% 
+  filter(verb_form == "infinitive_bare") 
+freq_ovsubj_form_writ_EO_infbare <- freq_ovsubj_form_writ_EO_infbare %>%
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_writ_EO_infbare$freq_total))))
+
+freq_ovsubj_form_writ_EO_infto <- freq_ovsubj_form_writ_EO %>% 
+  filter(verb_form == "infinitive_to") 
+freq_ovsubj_form_writ_EO_infto <- freq_ovsubj_form_writ_EO_infto %>%
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_writ_EO_infto$freq_total))))
+
+freq_ovsubj_form_writ_EO = bind_rows(freq_ovsubj_form_writ_EO_infto, freq_ovsubj_form_writ_EO_infbare, freq_ovsubj_form_writ_EO_prespart, freq_ovsubj_form_writ_EO_paspart)
+
+## add frequency phw for each verb form
+freq_ovsubj_form_writ_EO = freq_ovsubj_form_writ_EO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "English" & Mode == "written")$NR_tokens))) 
+  # number of hits divided by total number of words in the written part of the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_form_writ_EO
+
+
+### spoken only
+
+freq_ovsubj_form_spok_EO = verbs_nf_EO %>%
+  group_by(overt_subject, verb_form) %>%
+  filter(Mode == "spoken") %>%
+  count()
+colnames(freq_ovsubj_form_spok_EO) = c("overt_subject", "verb_form", "freq_total")
+
+## add percentages of all English non-finite vp
+freq_ovsubj_form_spok_EO_paspart <- freq_ovsubj_form_spok_EO %>% 
+  filter(verb_form == "participle_past") 
+freq_ovsubj_form_spok_EO_paspart <- freq_ovsubj_form_spok_EO_paspart %>%
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_spok_EO_paspart$freq_total))))
+
+freq_ovsubj_form_spok_EO_prespart <- freq_ovsubj_form_spok_EO %>% 
+  filter(verb_form == "participle_present") 
+freq_ovsubj_form_spok_EO_prespart <- freq_ovsubj_form_spok_EO_prespart %>%
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_spok_EO_prespart$freq_total))))
+
+freq_ovsubj_form_spok_EO_infbare <- freq_ovsubj_form_spok_EO %>% 
+  filter(verb_form == "infinitive_bare") 
+freq_ovsubj_form_spok_EO_infbare <- freq_ovsubj_form_spok_EO_infbare %>%
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_spok_EO_infbare$freq_total))))
+
+freq_ovsubj_form_spok_EO_infto <- freq_ovsubj_form_spok_EO %>% 
+  filter(verb_form == "infinitive_to") 
+freq_pvsubj_form_spok_EO_infto <- freq_ovsubj_form_spok_EO_infto %>%
+  mutate(freq_rel = 100*(freq_total/(sum(freq_ovsubj_form_spok_EO_infto$freq_total))))
+
+freq_ovsubj_form_spok_EO = bind_rows(freq_ovsubj_form_spok_EO_infto, freq_ovsubj_form_spok_EO_infbare, freq_ovsubj_form_spok_EO_prespart, freq_ovsubj_form_spok_EO_paspart)
+
+## add frequency phw for each verb form
+freq_ovsubj_form_spok_EO = freq_ovsubj_form_spok_EO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "English" & Mode == "spoken")$NR_tokens))) 
+  # number of hits divided by total number of words in the spoken part of the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_form_spok_EO
+
+freq_ovsubj_form_spok_EO$Mode = c("spoken")
+freq_ovsubj_form_writ_EO$Mode = c("written")
+freq_ovsubj_form_Mode_EO = bind_rows(freq_ovsubj_form_spok_EO, freq_ovsubj_form_writ_EO)
+freq_ovsubj_form_Mode_EO
+```
+
+```{r English plotting}
+## separately for verb forms
+
+## first, reorder data frame from above
+freq_ovsubj_form_Mode_EO$verb_form = with(freq_ovsubj_form_Mode_EO, reorder(verb_form, freq_rel))
+
+## frequency phw
+ggplot(data = freq_ovsubj_form_Mode_EO) +
+  geom_col(mapping = aes(x = verb_form, y = freq_phw, fill = Mode), position = "dodge") + 
+  labs(y = "Frequency phw", x = "Verb forms", title = "Relative Frequency of non-finite verb phrases in English \nwith and without overt subject by Mode") +
+  facet_wrap(. ~ overt_subject) +
+  coord_flip()
+
+## first, reorder data frame from above
+overt_only = subset(freq_ovsubj_form_Mode_EO, overt_subject == "yes")
+overt_only$verb_form = with(overt_only, reorder(verb_form, freq_rel))
+
+## percentages
+ggplot(data = overt_only) +
+  geom_col(mapping = aes(x = verb_form, y = freq_rel, fill = Mode), position = "dodge") +
+  labs(y = "Percentage", x = "Verb forms", title = "Percentage of non-finite verb phrases in English \nwith overt subject") +
+#  geom_text(aes(x = verb_form, y = freq_rel, label = round(overt_only$freq_rel, 1), position = "dodge"), size = 3, hjust = -0.5) + 
+ # coord_cartesian(ylim = c(0, 8))  +
+  coord_flip()
+```
+
+```{r German summary statistics}
+## totals
+freq_ovsubj_GO = verbs_nf_GO %>%
+  group_by(overt_subject) %>%
+  count()
+colnames(freq_ovsubj_GO) = c("overt_subject", "freq_total")
+
+## add percentages of all German non-finite vp
+freq_ovsubj_GO = freq_ovsubj_GO %>% 
+  mutate(freq_rel = freq_total/(sum(freq_ovsubj_GO$freq_total)))
+
+## add frequency phw for each verb form
+freq_ovsubj_GO = freq_ovsubj_GO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens))) 
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj_GO
+```
+
+An analysis by mode does not make sense for German since there is only one single example of a non-finite verb phrase with explicit subject.
+
+```{r both summary statistics}
+## totals
+freq_ovsubj = verbs_nf %>%
+  group_by(overt_subject) %>%
+  count()
+colnames(freq_ovsubj) = c("overt_subject", "freq_total")
+
+## add percentages of all non-finite vp
+freq_ovsubj = freq_ovsubj %>% 
+  mutate(freq_rel = freq_total/(sum(freq_ovsubj$freq_total)))
+
+## add frequency phw for each verb form
+freq_ovsubj = freq_ovsubj %>% 
+  mutate(freq_phw = 100*(freq_total/sum(texts$NR_tokens))) 
+  # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_ovsubj
+```
+
+###3.9.3 Divided by register
+
+```{r English plotting}
+## first, reorder data frame from above
+registers$Register = with(registers, reorder(Register, ovsub_phw_av))
+
+ggplot(data = subset(registers, Language == "English")) + 
+  geom_pointrange(mapping = aes(x = Register, y = ovsub_phw_av, 
+                                ymin = ovsub_phw_min, ymax = ovsub_phw_max, colour = Mode, fill = Mode)) + 
+  coord_flip() +
+  labs(y = "Frequency phw", x = "Register", title = "Frequency phw of overt subjects in non-finite verb phrases in English \nby register")
+```
+
+
+##3.10 Frequency of syntactic functions of nominal clauses in English and German
+
+###3.10.1 Overall
+
+```{r English summary statistics}
+## totals
+freq_funct_EO = verbs_nf_EO %>%
+  filter(clause_type == "nominal") %>%
+  group_by(nomclause_function) %>%
+  count()
+colnames(freq_funct_EO) = c("nomclause_function", "freq_total")
+
+freq_funct_EO = freq_funct_EO %>% 
+         ## add percentages of all English non-finite vp that are nominal clauses
+  mutate(freq_rel = 100*(freq_total/(sum(freq_funct_EO$freq_total))),
+         ## add frequency phw for each verb form
+         freq_phw = 100*(freq_total/sum(subset(texts, Language == "English")$NR_tokens)))
+         # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_funct_EO
+```
+
+```{r English plotting}
+## general
+freq_funct_EO$nomclause_function = with(freq_funct_EO, reorder(nomclause_function, freq_phw))
+head(freq_funct_EO)
+
+## plot with percentages
+ggplot(data = freq_funct_EO) +
+  geom_col(mapping = aes(x = nomclause_function, y = freq_rel)) + 
+  labs(y = "Percentage", x = "Syntactic function", 
+       title = "Percentage of syntactic functions out of all nominal non-finite verb phrases \nin English") + 
+  geom_text(mapping = aes(x = nomclause_function, y = freq_rel), label = round(freq_funct_EO$freq_rel, 2), hjust = -0.2) +
+  scale_y_continuous(limits = c(0, 100)) +
+  coord_flip()
+
+## plot with frequencies phw
+ggplot(data = freq_funct_EO) +
+  geom_col(mapping = aes(x = nomclause_function, y = freq_phw)) + 
+  labs(y = "Frequency phw", x = "Syntactic function", 
+       title = "Frequency phw of syntactic functions of all nominal non-finite verb phrases \nin English") + 
+  geom_text(mapping = aes(x = nomclause_function, y = freq_phw), label = round(freq_funct_EO$freq_phw, 2), hjust = -0.2) +
+  scale_y_continuous(limits = c(0, 3)) +
+  coord_flip()
+```
+
+```{r German summary statistics}
+## totals
+freq_funct_GO = verbs_nf_GO %>%
+  filter(clause_type == "nominal") %>%
+  group_by(nomclause_function) %>%
+  count()
+colnames(freq_funct_GO) = c("nomclause_function", "freq_total")
+
+
+freq_funct_GO = freq_funct_GO %>% 
+         ## add percentages of all German non-finite vp that are nominal clauses
+  mutate(freq_rel = 100*(freq_total/(sum(freq_funct_GO$freq_total))),
+         ## add frequency phw for each verb form
+         freq_phw = 100*(freq_total/sum(subset(texts, Language == "German")$NR_tokens)))
+         # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_funct_GO
+```
+
+```{r German plotting}
+## general
+freq_funct_GO$nomclause_function = with(freq_funct_GO, reorder(nomclause_function, freq_phw))
+head(freq_funct_GO)
+
+## plot with percentages
+ggplot(data = freq_funct_GO) +
+  geom_col(mapping = aes(x = nomclause_function, y = freq_rel)) + 
+  labs(y = "Percentage", x = "Syntactic function", 
+       title = "Percentage of syntactic functions out of all nominal non-finite verb phrases \nin German") + 
+  geom_text(mapping = aes(x = nomclause_function, y = freq_rel), label = round(freq_funct_GO$freq_rel, 2), hjust = -0.2) +
+  scale_y_continuous(limits = c(0, 100)) +
+  coord_flip()
+
+## plot with frequencies phw
+ggplot(data = freq_funct_GO) +
+  geom_col(mapping = aes(x = nomclause_function, y = freq_phw)) + 
+  labs(y = "Frequency phw", x = "Syntactic function", 
+       title = "Frequency phw of syntactic functions of all nominal non-finite verb phrases \nin German") + 
+  geom_text(mapping = aes(x = nomclause_function, y = freq_phw), label = round(freq_funct_GO$freq_phw, 2), hjust = -0.2) +
+  scale_y_continuous(limits = c(0, 3)) +
+  coord_flip()
+```
+
+```{r both summary statistics}
+## totals
+freq_funct = verbs_nf %>%
+  filter(clause_type == "nominal") %>%
+  group_by(nomclause_function) %>%
+  count()
+colnames(freq_funct) = c("nomclause_function", "freq_total")
+
+
+freq_funct = freq_funct %>% 
+         ## add percentages of all non-finite vp that are nominal clauses
+  mutate(freq_rel = freq_total/(sum(freq_funct$freq_total)),
+         ## add frequency phw for each verb form
+         freq_phw = 100*(freq_total/sum(texts$NR_tokens)))
+         # number of hits divided by total number of words in the corpus (disregarding PUNCT and SYM)
+
+freq_funct_GO$Language = c("German")
+freq_funct_EO$Language = c("English")
+freq_funct_both <- bind_rows(freq_funct_GO, freq_funct_EO)
+freq_funct_both
+```
+
+```{r both plotting}
+## first, reorder data frame from above
+freq_funct_both$nomclause_function = with(freq_funct_both, reorder(nomclause_function, freq_phw))
+
+## box plot with frequency phw
+ggplot(data = freq_funct_both) +
+  geom_col(mapping = aes(x = nomclause_function, y = freq_phw, fill = Language), position = "dodge") +
+  labs(y = "Frequency phw", x = "Syntactic function", title = "Frequency of syntactic functions of nominal clauses in English & German") + 
+#  facet_wrap( ~ Register) +
+#  geom_text(aes(x = verb_form, y = freq_rel, label = round(freq_types_Mode$freq_rel, 1), position = "dodge"), size = 3, vjust = 1.5) +
+  coord_flip()
+
+ggplot(data = freq_funct_both) +
+  geom_col(mapping = aes(x = nomclause_function, y = freq_rel, fill = Language), position = "dodge") +
+  labs(y = "Percentage of all nominal clauses", x = "Syntactic function", title = "Percentage of syntactic functions of nominal clauses in English & German") + 
+#  facet_wrap( ~ Register) +
+#  geom_text(aes(x = verb_form, y = freq_rel, label = round(freq_types_Mode$freq_rel, 1), position = "dodge"), size = 3, vjust = 1.5) +
+  coord_flip()
+```
+
+###3.10.2 Divided by Mode
+
+```{r English summary statistics}
+#### written only
+
+## totals
+freq_funct_writ_EO = verbs_nf_EO %>%
+  filter(clause_type == "nominal") %>%
+  filter(Mode == "written") %>%
+  group_by(nomclause_function) %>%
+  count()
+colnames(freq_funct_writ_EO) = c("nomclause_function", "freq_total")
+
+## add percentages of all English non-finite vp that are nominal clauses
+freq_funct_writ_EO = freq_funct_writ_EO %>% 
+  mutate(freq_rel = 100*(freq_total/(sum(freq_funct_writ_EO$freq_total))))
+
+## add frequency phw for each verb form
+freq_funct_writ_EO = freq_funct_writ_EO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "English" & Mode == "written")$NR_tokens))) 
+  # number of hits divided by total number of words in the written part of the corpus (disregarding PUNCT and SYM)
+
+freq_funct_writ_EO
+
+
+### spoken only
+
+## totals
+freq_funct_spok_EO = verbs_nf_EO %>%
+  filter(clause_type == "nominal") %>%
+  filter(Mode == "spoken") %>%
+  group_by(nomclause_function) %>%
+  count()
+colnames(freq_funct_spok_EO) = c("nomclause_function", "freq_total")
+
+## add percentages of all English non-finite vp that are nominal clauses
+freq_funct_spok_EO = freq_funct_spok_EO %>% 
+  mutate(freq_rel = 100*(freq_total/(sum(freq_funct_spok_EO$freq_total))))
+
+## add frequency phw for each verb form
+freq_funct_spok_EO = freq_funct_spok_EO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "English" & Mode == "spoken")$NR_tokens))) 
+  # number of hits divided by total number of words in the spoken part of the corpus (disregarding PUNCT and SYM)
+
+freq_funct_spok_EO
+
+freq_funct_spok_EO$Mode = c("spoken")
+freq_funct_writ_EO$Mode = c("written")
+freq_funct_Mode_EO = bind_rows(freq_funct_spok_EO, freq_funct_writ_EO)
+freq_funct_Mode_EO
+```
+
+```{r German summary statistics}
+#### written only
+
+## totals
+freq_funct_writ_GO = verbs_nf_GO %>%
+  filter(clause_type == "nominal") %>%
+  filter(Mode == "written") %>%
+  group_by(nomclause_function) %>%
+  count()
+colnames(freq_funct_writ_GO) = c("nomclause_function", "freq_total")
+
+## add percentages of all English non-finite vp that are nominal clauses
+freq_funct_writ_GO = freq_funct_writ_GO %>% 
+  mutate(freq_rel = 100*(freq_total/(sum(freq_funct_writ_GO$freq_total))))
+
+## add frequency phw for each verb form
+freq_funct_writ_GO = freq_funct_writ_GO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German" & Mode == "written")$NR_tokens))) 
+  # number of hits divided by total number of words in the written part of the corpus (disregarding PUNCT and SYM)
+
+freq_funct_writ_GO
+
+
+### spoken only
+
+## totals
+freq_funct_spok_GO = verbs_nf_GO %>%
+  filter(clause_type == "nominal") %>%
+  filter(Mode == "spoken") %>%
+  group_by(nomclause_function) %>%
+  count()
+colnames(freq_funct_spok_GO) = c("nomclause_function", "freq_total")
+
+## add percentages of all English non-finite vp that are nominal clauses
+freq_funct_spok_GO = freq_funct_spok_GO %>% 
+  mutate(freq_rel = 100*(freq_total/(sum(freq_funct_spok_GO$freq_total))))
+
+## add frequency phw for each verb form
+freq_funct_spok_GO = freq_funct_spok_GO %>% 
+  mutate(freq_phw = 100*(freq_total/sum(subset(texts, Language == "German" & Mode == "spoken")$NR_tokens))) 
+  # number of hits divided by total number of words in the spoken part of the corpus (disregarding PUNCT and SYM)
+
+freq_funct_spok_GO
+
+freq_funct_spok_GO$Mode = c("spoken")
+freq_funct_writ_GO$Mode = c("written")
+freq_funct_Mode_GO = bind_rows(freq_funct_spok_GO, freq_funct_writ_GO)
+freq_funct_Mode_GO
+```
+
+```{r both summary statistics}
+freq_funct_Mode_GO$Language = c("German")
+freq_funct_Mode_EO$Language = c("English")
+freq_funct_Mode = bind_rows(freq_funct_Mode_GO, freq_funct_Mode_EO)
+freq_funct_Mode
+```
+
+```{r both plotting}
+## Absolute frequencies
+ggplot(data = subset(verbs_nf, clause_type == "nominal")) +
+  geom_bar(mapping = aes(nomclause_function, colour = Language, fill = Language), show.legend = FALSE) + 
+  labs(y = "Absolute frequency", x = "Syntactic function", title = "Frequency of nominal non-finite verb phrases in English & German \nby syntactic function") + 
+  facet_wrap( ~ Language + Mode) +
+  coord_flip()
+
+ggplot(data = subset(verbs_nf, clause_type == "nominal")) +
+  geom_bar(mapping = aes(nomclause_function, colour = Mode, fill = Mode), position = "dodge") + 
+  labs(y = "Absolute frequency", x = "Syntactic function", title = "Frequency of nominal non-finite verb phrases in English & German \nby syntactic function") + 
+  facet_wrap( ~ Language, nrow =2) +
+  coord_flip()
+
+## Relative frequencies
+
+## first, reorder data frame from above
+freq_funct_Mode$nomclause_function = with(freq_funct_Mode, reorder(nomclause_function, freq_rel))
+head(freq_funct_Mode)
+
+ggplot(data = freq_funct_Mode) +
+  geom_col(mapping = aes(x = nomclause_function, y = freq_phw, fill = Mode, color = Mode), position = "dodge") + 
+  labs(y = "Frequency phw", x = "Syntactic function", 
+       title = "Frequency of syntactic functions of non-finite nominal clauses \nin English & German by Mode") + 
+#  geom_text(aes(x = sentence_function, y = freq_phw, label = round(freq_funct_both$freq_phw, 2)), size = 3) +
+  facet_wrap( ~ Language) +
+  coord_flip()
+
+ggplot(data = freq_funct_Mode) +
+  geom_col(mapping = aes(x = nomclause_function, y = freq_rel, fill = Mode, color = Mode), position = "dodge") + 
+  labs(y = "Percentage", x = "Syntactic function", 
+       title = "Percentage of syntactic functions out of all non-finite nominal clauses \nin English & German by Mode") + 
+#  geom_text(aes(x = sentence_function, y = freq_phw, label = round(freq_funct_both$freq_phw, 2)), size = 3) +
+  facet_wrap( ~ Language) +
+  coord_flip()
+```
+
+
+###3.10.3 Divided by register
+
+```{r summary statistics English}
+freq_funct_register_EO = registers %>%
+  subset(Language == "English") %>%
+  group_by(Register) %>%
+  summarise(subject = mean(subj_phw_av), object = mean(obj_phw_av), comps = mean(comps_phw_av), compo = mean(compo_phw_av)) 
+
+## data wrangling
+freq_funct_register_EO <- freq_funct_register_EO %>%
+  gather("nomclause_function", "freq_phw", 2:5)
+
+freq_funct_register_EO
+```
+
+```{r summary statistics German}
+freq_funct_register_GO = registers %>%
+  subset(Language == "German") %>%
+  group_by(Register) %>%
+  summarise(subject = mean(subj_phw_av), object = mean(obj_phw_av), comps = mean(comps_phw_av), compo = mean(compo_phw_av)) 
+
+## data wrangling
+freq_funct_register_GO <- freq_funct_register_GO %>%
+  gather("nomclause_function", "freq_phw", 2:5)
+
+freq_funct_register_GO
+```
+
+```{r combine into one df}
+freq_funct_register_GO$Language = c("German")
+freq_funct_register_EO$Language = c("English")
+freq_funct_register = bind_rows(freq_funct_register_GO, freq_funct_register_EO)
+freq_funct_register
+```
+
+```{r both plotting}
+## first, reorder data frame from above
+freq_funct_register$nomclause_function = with(freq_funct_register, reorder(nomclause_function, freq_phw))
+
+## box plot with frequency phw
+ggplot(data = freq_funct_register) +
+  geom_col(mapping = aes(x = nomclause_function, y = freq_phw, fill = Language), position = "dodge") +
+  labs(y = "Frequency of syntactic functions phw", x = "Verb forms", title = "Frequency of syntactic functions of nominal clauses \nin English & German by register") + 
+  facet_wrap( ~ Register) +
+#  geom_text(aes(x = verb_form, y = freq_rel, label = round(freq_types_Mode$freq_rel, 1), position = "dodge"), size = 3, vjust = 1.5) +
+  coord_flip()
+```
+
+```{r computing difference value}
+## first, reorder df from above to be in long format (one column phw-count in English, one column phw-count in German)
+freq_funct_register_diff <- freq_funct_register %>%
+  select(nomclause_function, Register, freq_phw, Language) %>%
+  pivot_wider(names_from = Language, values_from = freq_phw, names_prefix = "phw_")
+
+## subtract phw-count in German from phw-count in English and save in new column phw_diff
+freq_funct_register_diff <- freq_funct_register_diff %>%
+  mutate(phw_diff = phw_English - phw_German)
+  
+freq_funct_register_diff
+```
+
+```{r both plotting difference value}
+## first, reorder data frame from above
+freq_funct_register_diff$nomclause_function = with(freq_funct_register_diff, reorder(nomclause_function, phw_diff))
+
+## box plot with frequency phw
+ggplot(data = freq_funct_register_diff) +
+  geom_col(mapping = aes(x = nomclause_function, y = phw_diff)) +
+  labs(y = "Difference in phw-Frequency (phw_English - phw_German)", x = "Syntactic function", title = "Frequency differences (phw) of syntactic functions \nof nominal clauses in English & German by register") + 
+  facet_wrap( ~ Register) +
+#  geom_text(aes(x = verb_form, y = freq_rel, label = round(freq_types_Mode$freq_rel, 1), position = "dodge"), size = 3, vjust = 1.5) +
+  coord_flip()
+```
+

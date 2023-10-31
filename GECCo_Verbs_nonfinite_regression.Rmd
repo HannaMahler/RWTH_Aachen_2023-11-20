@@ -1,0 +1,671 @@
+---
+title: "Regression analysis of number of non-finite Verb phrases"
+author: "Hanna Mahler"
+date: "30 11 2022"
+output: html_document
+---
+
+#0. Preamble
+
+Goal of the analysis: Which factors influence the frequency of non-finite verb phrases (VPs) that are being used within a text? Is the language the deciding factor? Or the register, or the Mode, or the density?
+
+Why Bayesian? -> This is a domain with many pre-existing assumptions that can inform the analysis. (Next to the other good reasons for using a Bayesian approach!)
+
+#1. Load libraries
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse) ## needed for data wrangling
+library(readxl) ## needed for reading in data
+library(brms) ## needed for model fitting
+library(performance) ## needed for check_collinearity() below
+library(ggmcmc) ## needed for visualisation of prior & posterior distributions
+library(stats) ## needed for setting contrasts below.
+options(scipen = 999) # this turns off the scientific notation of very high/low numbers (e-10)
+set.seed(42) ## make results reproducible be setting seed to a specific number
+```
+
+#2. Load data
+
+Let's load and inspect the pre-processed, tidy data.
+
+```{r}
+texts <- read_excel("Overview_texts_vp.xlsx") %>%
+  mutate(Language = as.factor(Language),
+         Register = as.factor(Register), 
+         Mode = as.factor(Mode),
+         STTR_z = scale(STTR), ## the variable STTR needs to be z-scored (= centered and scaled)
+         NR_tokens_phw = NR_tokens/100) ## we create a column that counts units of 100 words (we need this so that the model predicts vp per hundred words instead of verb phrases per word)
+
+for (n in 1:nrow(texts)) {
+if (is.na(texts[n, 26])) { # 26 indicates the 26nd column, which is vp_nf_phw
+  texts[n, 26] <- 0 }
+}
+
+for (n in 1:nrow(texts)) {
+if (is.na(texts[n, 24])) { # 24 indicates the 24th column, which is NR_vp_nf
+  texts[n, 24] <- 0 }
+}
+
+head(texts)
+```
+
+The data frame "textsNF" contains all English and German texts within the corpus as separate rows. The columns contain different pieces of information on each text. Especially relevant for us is the language of the text (Language), its register (Register), its Mode (Mode), the standardized type-token ratio (STTR), the number of non-finite verb phrases for each text as an absolute number (NR_vp_nf) and the total number of tokens in a text (NR_tokens, NR_tokens_phw).
+
+#3. Explore data graphically
+
+As a first step we want to explore the data graphically. We are interested in the distribution of values for each variable, and also in the relationship between the variables.
+
+(More elaborate plots can be found in the separate script for visualizations)
+
+```{r}
+## Number of texts per language
+summary(texts$Language)
+
+## Number of texts per register
+summary(texts$Register)
+
+## Number of texts per Mode
+summary(texts$Mode)
+
+## Histogram of STTR
+hist(texts$STTR, breaks = 20)
+hist(texts$STTR_z, breaks = 20)
+
+pairs(~ Register + STTR + Mode, data  = texts)
+
+## Histogram of text length
+hist(texts$NR_tokens, breaks = 20)
+
+## Histogram of non-finite vp
+hist(texts$vp_nf_phw, breaks = 20)
+hist(texts$NR_vp_nf, breaks = 20)
+
+## average number of non-finite verb phrases per hundred words
+# overall
+mean(texts$vp_nf_phw)
+# English only
+mean(subset(texts, Language == "English")$vp_nf_phw)
+# German only
+mean(subset(texts, Language == "German")$vp_nf_phw)
+```
+
+
+#4. Modelling
+
+##4.1 Sum-coding categorical predictor variables
+
+Before we start, we should make sure to sum-code all categorical & binary predictor variables to ease interpretation and to improve model fit.
+
+Sum coding: has the unweighted mean as basis for comparison. The coefficient given for level1 is how much you need to add to the intercept. "The last category [...] will be omitted. Its estimated average can be computed be subtracting both coefficients of 'A' and 'B' from the intercept." (Levshina 2015: 146)
+  - is also called "deviation coding": https://stats.oarc.ucla.edu/r/library/r-library-contrast-coding-systems-for-categorical-variables/
+
+```{r sum-coding predictor variables}
+contrasts(texts$Language) <- contr.sum(2)
+contrasts(texts$Register) <- contr.sum(14)
+contrasts(texts$Mode) <- contr.sum(2)
+```
+
+
+##4.2 Setting priors for the data
+
+
+###4.2.1 Thinking about the model and random effects structure
+
+What we want to predict (dependent variable): 
+- the number of non-finite verb phrases per text (NR_vp_nf)
+
+What we can use as predictors (independent variables):
+- the language of the text (Language, binary variable)
+- the register of the text (Register, categorical variable)
+- the Mode of the text (Mode, binary variable)
+- the density of the text, operationalised as z-scored standardized type-token-ration (STTR_z, numerical variable)
+- the length of the text, operationalised as number of tokens per hundred words (NR_tokens_phw, numerical variable)
+
+Our model formula:
+*NR_vp_nf ~ 1 + Language + Mode+ STTR_z + offset(log(NR_tokens_phw)) + Language:Mode + Language:STTR_z + (1|Register)*
+
+-> In this model we are predicting counts and can use text length as an "exposure variable" (Winter & Bürkner 2021: 10). The model therefore predicts "counts over units of exposure" (Winter & Bürkner 2021: 11). So per one hundred words.
+
++++ Side note: +++
+We originally had Text as a random effect + (1|Text_id), but this does not make sense, since there is only one observation for each text. So we can't really speak of a "grouping variable" since there are no groups. If we had Text_id as a random effect this would also in part take care of text length as a potential confound.
+
+Quick reminder on notation:
+(1|variable) specifies varying intercepts
+"1 +" stands for the Intercept, can also be omitted.
+
+###4.2.2 Coming up with priors for the fixed and random effects
+
+To set the priors we need to temporarily forget what we learned about the data above. The priors should ONLY be informed by the existing literature/knowledge, not by the actual data set!
+
+Distribution family for the dependent variable:
+
+NR_vp_nf: only positive values make sense
+  -> Fischer (2013) finds ...
+  -> Ellegård (1978: 28) find 2.9 non-finite verb phrases phw in English
+
+Priors for the independent variables:
+
+What we know from the existing literature:
+- English probably uses more non-finite VPs than German. Neumann (2020: 150) suggests that English uses four times as many non-finite verb phrases than German. Fischer (2013: 169) implies that English uses two times as many non-finite verb phrases than German.
+- in both English and German we expect more non-finite VPs in written language (e.g. Biber et al. 1999: 754, 699; Kortmann 1988: 63)
+- in both English and German we expect that texts that are more dense (high STTR) use more non-finite verb phrases (Leech et al. 2009: 203)
+
+
+####4.2.3 Setting priors
+
+Default priors make no sense for poisson regression, because of how the link function affects them.
+
+McElreath (2019: 354): "The log link ensures that λi is always positive, which is required of the expected value of a count outcome. But as mentioned in the previous chapter, it also implies an exponential relationship between predictors and the expected value. Exponential relationships grow very quickly, and few natural phenomena can remain exponential for long. So one thing to always check with a log link is whether it makes sense at all ranges of the predictor variables. The priors on the log scale also scale in surprising ways. So prior predictive simulation is again helpful."
+
+Because of the exposure variable, the model output is on the scale "non-finite verb phrases per hundred words". This means that the prior also needs to be on (the log of) this scale. See also Winter & Bürkner (2021: 10).
+
+```{r}
+## Use get_prior() to find out about possible priors and their names
+get_prior(NR_vp_nf ~ 1 + Language + Mode + STTR_z + offset(log(NR_tokens_phw)) + Language:Mode + Language:STTR_z + (1|Register),
+          data = texts, family = poisson())
+
+## Create a vector of priors using  prior(distribution, class = ..., coef = ...)
+priors_original <- c(
+  ## prior for the intercept
+  prior(normal(0.8, 1), class = Intercept), ## for all VPs we used mean 2.8 sd 0.5
+  ## prior for the slope for Language
+  prior(normal(0.3, 0.3), class = b, coef = Language1), ## for all VPs we used mean 0.1 sd 0.2
+  ## prior for the slope for Mode
+  prior(normal(-0.2, 0.2), class = b, coef = Mode1), ## for all VPs we used mean 0.1 sd 0.2
+  ## prior for the slope for STTR_z
+  prior(normal(0.2, 0.3), class = b, coef = STTR_z), ## for all VPs we used mean -0.1 sd 0.2
+  ## prior for random effect
+  prior(normal(0, 0.1), class = sd), ## for all VPs we used mean 0 sd 0.1
+  ## priors for interaction terms
+  prior(normal(0, 0.1), class = b, coef = Language1:Mode1), ## for all VPs we used mean 0 sd 0.1
+  prior(normal(0, 0.1), class = b, coef = Language1:STTR_z)
+  )
+```
+
+##4.3 Prior predictive check
+
+We want to make sure that the priors we set generate useful simulations. For this we use code from McElreath (2020: 356-357) to predict random values from the distribution we specified. Note that the slope needs to be estimated together with the intercept due to the non-linear nature of the transformation (Winter & Bürkner 2021: 15). We therefore use exp(intercept + slope) for each slope term to check whether the priors are reasonable.
+
+```{r prior predictive distribution for the intercept}
+mean = 0.8
+sd = 1
+curve(dlnorm(x, mean, sd), from = 0, to = 50, n = 200, xlab = "Predicted number of non-finite VPs per hundred words", y = "Density")
+
+## alternative visualization: histogram of random draws
+#sim_int <- rnorm(2000, mean = 0.8, sd = 1)
+#hist(exp(sim_int), breaks = 100, xlim = range(0:100))
+```
+
+```{r prior predictive distribution for slope Mode}
+# sum-coded: spoken 1, written -1
+N <- 70 # number of prior trends
+a <- rnorm(N, 0.8, 1) ## here we enter the values from the intercept, see above
+b <- rnorm(N, -0.2, 0.2) 
+plot(NULL, xlim = c(-2, 2), ylim = c(0, 15), ylab = "Predicted number of non-finite VPs per hundred words", 
+     xlab = "Mode (1 = spoken, -1 = written)")
+for ( i in 1:N ) curve( exp( a[i] + b[i]*x ) , add=TRUE , col = "grey")
+```
+
+```{r prior predictive distribution for slope language}
+# sum-coded: English 1, German -1
+N <- 100 # number of prior trends
+a <- rnorm(N, 0.8, 1) ## here we enter the values from the intercept, see above
+b <- rnorm(N, 0.3, 0.3) 
+plot(NULL, xlim = c(-2, 2), ylim = c(0, 15), ylab = "Predicted number of non-finite VPs per hundred words", 
+     xlab = "Language (1 = English, -1 = German)")
+for ( i in 1:N ) curve( exp( a[i] + b[i]*x ) , add=TRUE , col= "grey" )
+```
+
+```{r prior predictive distribution for slope STTR_z}
+N <- 70 # number of prior trends
+a <- rnorm(N, 0.8, 1) ## here we enter the values from the intercept, see above
+b <- rnorm(N, 0.2, 0.3) 
+plot(NULL, xlim = c(-2, 2), ylim = c(0, 15), ylab = "Predicted number of non-finite VPs per hundred words", xlab = "STTR_z")
+for ( i in 1:N ) curve(exp(a[i] + b[i]*x), add=TRUE, col = "grey")
+```
+
+```{r prior predictive distribution for interaction terms}
+N <- 100 # number of prior trends
+a <- rnorm(N, 0.8, 1) ## here we enter the values from the intercept, see above
+b <- rnorm(N, 0, 0.1) 
+plot(NULL, xlim = c(-2, 2), ylim = c(0, 15), ylab = "Predicted number of non-finite VPs per hundred words", xlab = "Interaction term")
+for ( i in 1:N ) curve(exp(a[i] + b[i]*x), add=TRUE, col = "grey")
+```
+
+```{r prior predictive distribution for random slopes by register}
+N <- 100 # number of prior trends
+a <- rnorm(N, 0.8, 0.5) ## here we enter the values from the intercept, see above
+b <- rnorm(N, 0, 0.1) 
+plot(NULL, xlim = c(-4, 4), ylim = c(0, 15), ylab = "Predicted number of non-finite VPs per hundred words", xlab = "Register")
+for ( i in 1:N ) curve(exp(a[i] + b[i]*x), add=TRUE, col = "grey")
+```
+
+
+##4.4 Fitting model
+
+We fit a poisson regression model using brm() with the priors from above (priors_original).
+This should not take more than 3 minutes. If it takes too long you can also load my rds-file.
+
+```{r model with English and German}
+vp_nf_model_poisson <- brm(
+  NR_vp_nf ~ 1 + Language + Mode + STTR_z + offset(log(NR_tokens_phw)) + Language:Mode + Language:STTR_z + (1|Register),
+  data = texts,
+  family = poisson(),
+  prior = priors_original,
+  warmup = 2000,
+  iter = 6000,
+  chains = 3,
+  #cores = 3
+  #control = list(adapt_delta = 0.95),
+  )
+
+#saveRDS(vp_nf_model_poisson, file = "Models/vp_nf_model_poisson.rds")
+#vp_nf_model_poisson <- read_rds("Models/vp_nf_model_poisson.rds")
+```
+
+
+##4.5 Checking model fit
+
+###4.5.1 Inspecting model output and plots
+
+Because we added an exposure variable, the model predicts "counts over units of exposure" (Winter & Bürkner 2021: 11). So per one hundred words. [But not in the conditional_effects() function, that uses the original count scale!]
+
+Interpretation of the coefficient table in Bayesian statistics: (Winter & Bürkner 2021: 7)
+- column 1 "Estimate": the mean of the posterior distribution for this coefficient
+- column 2 "Est.Error": the standard deviation of the posterior distribution for this coefficient
+- column 3 "l-95% CI": the lower boundary of the 95% credible interval of the coefficient
+- column 4 "u-95% CI": the upper boundary of the 95% credible interval of the coefficient
+- Group-level effect "sd(Intercept)": an estimate of the variation in intercepts by the random-effects variable
+
+Explanation of *credible interval*: "In Bayesian statistics, credible intervals indicate the range within which a parameter value falls with a particular probability. More narrow intervals indicate higher precision in one's estimate." (Winter & Bürkner 2021: 7)
+
+Population-Level Effects: 
+                 Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS
+Intercept            0.52      0.06     0.40     0.64 1.00     3264     4733
+Language1            0.58      0.01     0.56     0.59 1.00    10362     8537
+Mode1               -0.18      0.06    -0.29    -0.07 1.00     3916     5602
+STTR_z               0.05      0.02     0.02     0.08 1.00     8778     7756
+Language1:Mode1      0.04      0.01     0.02     0.06 1.00     9105     8432
+Language1:STTR_z    -0.06      0.01    -0.08    -0.03 1.00     8521     8058
+
+```{r}
+plot(vp_nf_model_poisson) # check whether the chains have mixed
+summary(vp_nf_model_poisson) # inspect the predictions and R-hat values. The R-Hat value should be close to 1 and should not exceed 1.1 (Nalborczyk et al. 2019: 21)
+posterior_summary(vp_nf_model_poisson) # to also see the estimates for each level of the random effect and to see more decimals
+
+conditional_effects(vp_nf_model_poisson)
+# This function shows the mean value predicted by the model with 95% credible-intervals, for each individual predictors. If not specified otherwise, the function will use the mean or reference level of the other predictors for calculating the predictions. These predictions are on the original count scale
+conditional_effects(vp_nf_model_poisson, effects = "STTR_z:Language")
+conditional_effects(vp_nf_model_poisson)$STTR_z
+
+##check for multicollinearity
+check_collinearity(vp_nf_model_poisson)
+```
+
+With conditional_effects(vp_nf_model_poisson)$Language we can get at the estimates that the model uses for plotting. E.g. for Language:
+
+  Language NR_vp_nf Mode                    STTR_z Register NR_tokens_phw cond__ effect1__ estimate__     se__  lower__  upper__
+1  English  53.6828 spoken -0.0000000000000005673623       NA       24.3886      1   English   63.68489 5.384528 53.63167 75.70506
+2   German  53.6828 spoken -0.0000000000000005673623       NA       24.3886      1    German   18.59675 1.639506 15.49601 22.23341
+
+This function probably overrides my sum-coding from above and implements dummy coding once more, as we can see in the column "Mode". We should therefore look at the graphs with the interactions only.
+
+```{r}
+## predict values for specific texts
+newdata1 <- data.frame(Language = factor(c("English", "German")), 
+                      Register = factor(c("ESSAY", "ESSAY")), 
+                      Mode = factor(c("written", "written")), 
+                      NR_tokens_phw = c(1, 1), 
+                      STTR_z = c(0,0))
+newdata1
+predict(vp_nf_model_poisson, newdata = newdata1)
+```
+
+
+##4.6 Sensitivity analysis
+
+We should try other priors to see whether the results change significantly (Kruschke 2021: 1288-1289).
+
+The priors we fitted above are *informative*. In the sensitivity analysis we should fit priors that are uninformative and more informative (i.e. distributions with a different mean). We are also trying priors that are wider and narrower (i.e. that are only altered in their standard deviation)
+
+```{r see priors in the original model}
+## use prior_summary(modelname) to see which priors we set beforehand:
+prior_summary(vp_nf_model_poisson)
+```
+
+```{r specifying wider priors}
+## set new, wider priors
+priors_wider <- c(
+  ## prior for the intercept
+  prior(normal(1.2, 1), class = Intercept), # original: normal(0.8, 1)
+  ##### prior for the slope for Language
+  prior(normal(0.3, 0.5), class = b, coef = Language1), # original: normal(0.3, 0.3)
+  ##### prior for the slope for Mode
+  prior(normal(-0.2, 0.4), class = b, coef = Mode1), # original: normal(-0.2, 0.2)
+  ##### prior for the slope for STTR_z
+  prior(normal(0.2, 0.5), class = b, coef = STTR_z), # original: normal(0.2, 0.3)
+  ## prior for random effect
+  prior(normal(0, 0.25), class = sd), # original: normal(0, 0.1)
+  ##### priors for interaction terms
+  prior(normal(0, 0.2), class = b, coef = Language1:Mode1), # original: normal(0, 0.1)
+  prior(normal(0, 0.2), class = b, coef = Language1:STTR_z) # original: normal(0, 0.1)
+  )
+
+## run the model again (same iterations as above)
+vp_nf_model_poisson_wider <- brm(
+  NR_vp_nf ~ 1 + Language + Mode + STTR_z + offset(log(NR_tokens_phw)) + Language:Mode + Language:STTR_z + (1|Register),
+  data = texts,
+  family = poisson(),
+  prior = priors_wider,
+  warmup = 2000,
+  iter = 6000,
+  chains = 3,
+  #cores = 3
+  #control = list(adapt_delta = 0.95),
+  )
+
+#saveRDS(vp_nf_model_poisson_wider, file = "Models/vp_nf_model_poisson_wider.rds")
+#vp_nf_model_poisson_wider <- read_rds("Models/vp_nf_model_poisson_wider.rds")
+```
+
+```{r specifying narrower priors}
+## set new, narrower priors
+priors_narrower <- c(
+  ## prior for the intercept
+  prior(normal(0.8, 1), class = Intercept), # original: normal(0.8, 1)
+  ##### prior for the slope for Language
+  prior(normal(0.3, 0.1), class = b, coef = Language1), # original: normal(0.3, 0.3)
+  ##### prior for the slope for Mode
+  prior(normal(-0.2, 0.1), class = b, coef = Mode1), # original: normal(-0.2, 0.2)
+  ##### prior for the slope for STTR_z
+  prior(normal(0.2, 0.15), class = b, coef = STTR_z), # original: normal(0.2, 0.3)
+  ##### prior for random effect
+  prior(normal(0, 0.05), class = sd), # original: normal(0, 0.1)
+  ##### priors for interaction terms
+  prior(normal(0, 0.05), class = b, coef = Language1:Mode1), # original: normal(0, 0.1)
+  prior(normal(0, 0.05), class = b, coef = Language1:STTR_z) # original: normal(0, 0.1)
+  )
+
+
+## run the model again (same iterations as above)
+vp_nf_model_poisson_narrower <- brm(
+  NR_vp_nf ~ 1 + Language + Mode + STTR_z + offset(log(NR_tokens_phw)) + Language:Mode + Language:STTR_z + (1|Register),
+  data = texts,
+  family = poisson(),
+  prior = priors_narrower,
+  warmup = 2000,
+  iter = 6000,
+  chains = 3,
+  #cores = 3
+  #control = list(adapt_delta = 0.95),
+  )
+
+#saveRDS(vp_nf_model_poisson_narrower, file = "Models/vp_nf_model_poisson_narrower.rds")
+#vp_nf_model_poisson_narrower <- read_rds("Models/vp_nf_model_poisson_narrower.rds")
+```
+
+```{r specifying more informative priors}
+## set new, more informative priors
+priors_moreinf <- c(
+  ## prior for the intercept
+  prior(normal(0.8, 1), class = Intercept), # original: normal(0.8, 1)
+  ##### prior for the slope for Language
+  prior(normal(0.4, 0.3), class = b, coef = Language1), # original: normal(0.3, 0.3)
+  ##### prior for the slope for Mode
+  prior(normal(-0.3, 0.1), class = b, coef = Mode1), # original: normal(-0.2, 0.2)
+  ##### prior for the slope for STTR_z
+  prior(normal(0.3, 0.3), class = b, coef = STTR_z), # original: normal(0.2, 0.3)
+  ##### prior for random effect
+  prior(normal(0, 0.1), class = sd), # original: normal(0, 0.1)
+  ##### priors for interaction terms
+  prior(normal(0, 0.1), class = b, coef = Language1:Mode1), # original: normal(0, 0.1)
+  prior(normal(0, 0.1), class = b, coef = Language1:STTR_z) # original: normal(0, 0.1)
+  )
+
+## run the model again (same iterations as above)
+vp_nf_model_poisson_moreinf <- brm(
+  NR_vp_nf ~ 1 + Language + Mode + STTR_z + offset(log(NR_tokens_phw)) + Language:Mode + Language:STTR_z + (1|Register),
+  data = texts,
+  family = poisson(),
+  prior = priors_moreinf,
+  warmup = 2000,
+  iter = 6000,
+  chains = 3,
+  #cores = 3
+  #control = list(adapt_delta = 0.95),
+  )
+
+#saveRDS(vp_nf_model_poisson_moreinf, file = "Models/vp_nf_model_poisson_moreinf.rds")
+#vp_nf_model_poisson_moreinf <- read_rds("Models/vp_nf_model_poisson_moreinf.rds")
+```
+
+```{r specifying uninformative priors}
+## set new, uninformative priors
+priors_uninf <- c(
+  ## prior for the intercept
+  prior(normal(0.8, 1), class = Intercept), # original: normal(0.8, 1)
+  ##### prior for the slope for Language
+  prior(normal(0, 0.3), class = b, coef = Language1), # original: normal(0.3, 0.3)
+  ##### prior for the slope for Mode
+  prior(normal(0, 0.2), class = b, coef = Mode1), # original: normal(-0.2, 0.2)
+  ##### prior for the slope for STTR_z
+  prior(normal(0, 0.3), class = b, coef = STTR_z), # original: normal(0.2, 0.3)
+  ##### prior for random effect
+  prior(normal(0, 0.1), class = sd), # original: normal(0, 0.1)
+  ##### priors for interaction terms
+  prior(normal(0, 0.01), class = b, coef = Language1:Mode1), # original: normal(0, 0.1)
+  prior(normal(0, 0.01), class = b, coef = Language1:STTR_z) # original: normal(0, 0.1)
+  )
+
+## run the model again (same iterations as above)
+vp_nf_model_poisson_uninf <- brm(
+  NR_vp_nf ~ 1 + Language + Mode + STTR_z + offset(log(NR_tokens_phw)) + Language:Mode + Language:STTR_z + (1|Register),
+  data = texts,
+  family = poisson(),
+  prior = priors_uninf,
+  warmup = 2000,
+  iter = 6000,
+  chains = 3,
+  #cores = 3
+  #control = list(adapt_delta = 0.95),
+  )
+
+#saveRDS(vp_nf_model_poisson_uninf, file = "Models/vp_nf_model_poisson_uninf.rds")
+#vp_nf_model_poisson_uninf <- read_rds("Models/vp_nf_model_poisson_uninf.rds")
+```
+
+Inspect the models with the altered priors. Use the plotting and summary code from above (chunk 20).
+
+```{r inspecting new models}
+## model with wider priors
+plot(vp_nf_model_poisson_wider)
+summary(vp_nf_model_poisson_wider)
+conditional_effects(vp_nf_model_poisson_wider)
+
+## model with narrower priors
+plot(vp_nf_model_poisson_narrower)
+summary(vp_nf_model_poisson_narrower)
+conditional_effects(vp_nf_model_poisson_narrower)
+
+## model with uninformative priors
+plot(vp_nf_model_poisson_uninf)
+summary(vp_nf_model_poisson_uninf)
+conditional_effects(vp_nf_model_poisson_uninf)
+
+## model with more informative priors
+plot(vp_nf_model_poisson_moreinf)
+summary(vp_nf_model_poisson_moreinf)
+conditional_effects(vp_nf_model_poisson_moreinf)
+```
+
+*How big is the influence of the priors?*
+- Specifying wider priors returns the same estimates
+- Specifying narrower priors returns virtually the same estimates
+- Specifying uninformative priors almost the same estimates
+- Specifying more informative priors returns almost the same estimates
+
+
+##4.7 Visualize effects
+
+It is helpful to visualize the prior and the posterior distribution in one graph. We can do this either on the log-scale or on the exponentiated scale.
+- we specify our priors on the "log of number of VPs per hundred words" scale, since they will be exponentiated through the link function
+- the model summary presents numbers on the "log of relative number of VPs per hundred words" scale because we added an exposure variable. 
+We can exponentiate both to get to the "number of VPs per hundred words" scale. 
+
+```{r visualise intercept on log scale}
+summary(vp_nf_model_poisson)$fixed[1,3:4] ## copy-paste values into code below
+
+vp_nf_model_poisson_transformed <- ggs(vp_nf_model_poisson) # the ggs function transforms the brms output into a longformat tibble, that we can use to make different types of plots.
+
+## visualisation on log scale
+ggplot(filter(vp_nf_model_poisson_transformed, Parameter == "b_Intercept", Iteration > 1000),
+       aes(x = value))+ 
+  geom_density(fill  = "yellow", alpha = .5)+
+  ## prior distribution specified above: rnorm(mean = 2.8, sd = 0.5)
+  geom_density(mapping = aes((rnorm(15000, 0.8, 1))), fill = "green", alpha = 0.5) +
+  geom_vline(xintercept = 0, col = "red", linewidth = 1) +
+  scale_x_continuous(name = "Intercept estimate on log-scale", limits = c(-1, 2.5)) + 
+  geom_vline(xintercept = c(0.406, 0.633), ## enter values from above here
+             col = "blue", linetype = 2) +
+  theme_light() +
+  labs(title = "Prior & Posterior Density of Intercept")
+```
+
+```{r visualise intercept on vp_phw scale}
+## credible intervals:
+summary(vp_nf_model_poisson)$fixed[1,3:4] ## copy-paste values into code below
+
+vp_nf_model_poisson_transformed <- ggs(vp_nf_model_poisson) # the ggs function transforms the brms output into a longformat tibble, that we can use to make different types of plots.
+
+## visualization on vp_phw scale
+ggplot(filter(vp_nf_model_poisson_transformed, Parameter == "b_Intercept", Iteration > 1000),
+       ## add the model estimates
+       aes(x = exp(value)), trim = TRUE) + 
+  geom_density(fill  = "yellow", alpha = 0.5, trim = TRUE)+
+  ## add prior distribution specified above: rnorm(mean = 2.8, sd = 0.5)
+  geom_density(mapping = aes((exp(rnorm(15000, 0.8, 1)))), 
+               fill = "green", alpha = 0.5, trim = TRUE) +
+  ## add the actual distribution of the data (does not work at the moment for unknown reasons)
+  #geom_density(mapping = aes(x = texts$vp_phw), fill = "orange", alpha = 0.5, trim = TRUE) + 
+  ## add a line at the intercept
+  geom_vline(xintercept = 0, col = "red", linewidth = 1) +
+  ## set x-axis limits
+  scale_x_continuous(name = "Intercept estimate on scale: Verb phrases per hundred words", limits = c(0, 8)) +
+  ## add vertical lines for the credible intervals
+  geom_vline(xintercept = c(exp(0.406), exp(0.633)), ## enter values from above here (exp(value))
+             col = "blue", linetype = 2) +
+  theme_light() +
+  labs(title = "Prior and Posterior Density of Intercept")
+
+```
+
+
+For the slopes we visualise the estimate on the log scale to ease comparison. If we wanted to exponentiate we would have to add the intercept, exp(Intercept + slope), thereby no longer looking at the difference between conditions.
+
+```{r visualise fixed effect STTR_z on log scale}
+summary(vp_nf_model_poisson)$fixed[4,3:4]
+
+ggplot(filter(vp_nf_model_poisson_transformed, Parameter == "b_STTR_z", Iteration > 1000), 
+       mapping = aes(x = value)) +
+  geom_density(fill = "orange", alpha = 0.5)+
+  geom_density(mapping = aes((rnorm(15000, 0.2, 0.3))), fill = "green", alpha = 0.5) + ## enter prior specifications from above
+  geom_vline(xintercept = 0, col = "red", linewidth = 1)+
+  scale_x_continuous(name = "Estimate for STTR_z coefficient on log-scale", limits = c(0, 1))+ 
+  geom_vline(xintercept = c(0.022, 0.084), col = "blue", linetype = 2)+ ## enter values from above here
+  theme_light()+
+  labs(title = "Posterior and Prior Density of Regression Coefficient for STTR_z")
+```
+
+```{r visualise fixed effect Mode on log scale}
+summary(vp_nf_model_poisson)$fixed[3,3:4]
+
+ggplot(filter(vp_nf_model_poisson_transformed, Parameter == "b_Mode1", Iteration > 1000), aes(x = value))+
+  geom_density(fill = "orange", alpha = .5)+
+  geom_vline(xintercept = 0, col = "red", linewidth = 1)+
+  geom_density(mapping = aes(rnorm(15000, -0.2, 0.2)), fill = "green", alpha = 0.5) + ## enter prior specifications from above normal(0.1, 0.2)
+  scale_x_continuous(name = "Estimate for Mode coefficient on log-scale", limits = c(-1, 0.5))+ 
+  geom_vline(xintercept = c(-0.292, -0.066), col = "blue", linetype = 2)+ ## enter values from above here
+  theme_light()+
+  labs(title = "Posterior and Prior Density of Regression Coefficient for Mode")
+```
+
+```{r visualise fixed effect language on log scale}
+summary(vp_nf_model_poisson)$fixed[2,3:4]
+
+ggplot(filter(vp_nf_model_poisson_transformed, Parameter == "b_Language1", Iteration > 1000), aes(x = value))+
+  geom_density(fill = "orange", alpha = .5)+
+  geom_density(mapping = aes(rnorm(15000, 0.3, 0.3)), fill = "green", alpha = 0.5) + ## enter prior specifications from above
+  geom_vline(xintercept = 0, col = "red", linewidth = 1)+
+  scale_x_continuous(name = "Estimate for Language coefficient on log-scale", limits = c(0, 1))+ 
+  geom_vline(xintercept = c(0.557, 0.595), col = "blue", linetype = 2)+ ## enter values from above here
+  theme_light()+
+  labs(title = "Prior and Posterior Density of Regression Coefficient for Language")
+```
+
+
+##4.8 Posterior predictive checks
+
+We use the posterior distribution to create new data.
+
+```{r}
+pp_check(vp_nf_model_poisson, ndraws = 100, type = "dens_overlay")
+pp_check(vp_nf_model_poisson_wider, ndraws = 100, type = "dens_overlay")
+pp_check(vp_nf_model_poisson_narrower, ndraws = 100, type = "dens_overlay")
+pp_check(vp_nf_model_poisson_uninf, ndraws = 100, type = "dens_overlay")
+pp_check(vp_nf_model_poisson_moreinf, ndraws = 100, type = "dens_overlay")
+
+pp_ecdf_original <- pp_check(vp_nf_model_poisson, ndraws =  100, type = 'ecdf_overlay')
+pp_ecdf_wider <- pp_check(vp_nf_model_poisson_wider, ndraws =  100, type = 'ecdf_overlay')
+pp_ecdf_narrower <- pp_check(vp_nf_model_poisson_narrower, ndraws =  100, type = 'ecdf_overlay')
+pp_ecdf_uninf <- pp_check(vp_nf_model_poisson_uninf, ndraws =  100, type = 'ecdf_overlay')
+pp_ecdf_moreinf <- pp_check(vp_nf_model_poisson_moreinf, ndraws =  100, type = 'ecdf_overlay')
+
+pp_ecdf_original
+pp_ecdf_wider
+pp_ecdf_narrower
+pp_ecdf_uninf
+pp_ecdf_moreinf
+```
+
+
+```{r}
+predict(object = vp_nf_model_poisson, newdata = NULL, re_formula = NULL, summary = TRUE)
+## this returns a data frame with 372 rows (same as the original "texts" df) and columns for estimate, standard error and quantiles.
+
+## predict values for specific texts
+newdata <- data.frame(Language = factor(c("English", "German")), 
+                      Register = factor(c("ESSAY", "ESSAY")), 
+                      Mode = factor(c("written", "written")), 
+                      NR_tokens_phw = c(1, 1), 
+                      STTR_z = c(0,0))
+newdata
+predict(vp_nf_model_poisson, newdata = newdata)
+```
+
+##4.9 Comparing coefficient size / hypothesis testing
+
+We are doing one-sided hypothesis testing. Extract from the Vignette: "For a one-sided hypothesis, [the evidence ratio] is just the posterior probability (Post.Prob) under the hypothesis against its alternative. That is, when the hypothesis is of the form a > b, the evidence ratio is the ratio of the posterior probability of a > b and the posterior probability of a < b. In this example, values greater than one indicate that the evidence in favor of a > b is larger than evidence in favor of a < b."
+
+So: 
+- If Evid.Ratio > 1: there is more evidence for A > B than there is for B > A.
+- If Evid.Ratio < 1: there is more evidence for B > A than there is for A > B.
+- Evid.Radio of Inf indicates a very large evidence in favor of the tested hypothesis
+
+We are doing Poisson regression, which means that the parameter estimates are on a log-scale. If we want the hypothesis-function to return predictions on the original count scale, we need to include the exp() function wrapped around both intercept and slope. For more details see Winter & Bürkner (2021: 8-9)
+
+```{r}
+## Is the effect of language stronger than the effect of Mode?
+hypothesis(vp_nf_model_poisson, 'Language1 > Mode1')
+# Evid.Ratio of Inf indicates that Language is a stronger effect than Mode
+
+## Is the effect of language stronger than the effect of density?
+hypothesis(vp_nf_model_poisson, 'Language1 > STTR_z')
+# Evid.Ratio of Inf indicates that Language is a stronger effect than Density
+
+## Is the effect of Mode stronger than the effect of density?
+hypothesis(vp_nf_model_poisson, 'Mode1 > STTR_z')
+# Evid.Ratio of 0 indicates that there is no evidence for Mode being stronger than Density
+```
+
+
+

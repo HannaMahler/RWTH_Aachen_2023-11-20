@@ -1,0 +1,476 @@
+---
+title: "GECCo_Verbs_visualisations"
+author: "Hanna Mahler"
+date: "2023-02-27"
+output: html_document
+---
+
+
+#1. Load libraries
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(distributional)
+library(readxl)
+library(writexl)
+library(brms)
+library(caret)
+library(car)
+library(corrplot)
+library(regclass)
+library(performance)
+library(ggmcmc)
+library(forcats)
+options(scipen = 999) # this turns off the scientific notation of very high/low numbers (e-10)
+set.seed(42)
+```
+
+#2. Load data
+
+Let's load and inspect the pre-processed, tidy data.
+
+```{r}
+texts <- read_excel("Overview_texts_vp.xlsx") %>%
+  mutate(Language = as.factor(Language),
+         Register = as.factor(Register), 
+         Mode = as.factor(Mode))
+
+## the variable STTR needs to be z-scored (= centered and scaled)
+texts$STTR_z = scale(texts$STTR)
+
+## we need to create one data frame for English and one for German (for the language-specific models below)
+texts_EO = subset(texts, Language == "English")
+texts_GO = subset(texts, Language == "German")
+
+registers <- read_excel("Overview_registers_vp.xlsx")
+## we need to create one data frame for English and one for German (for the language-specific models below)
+registers_EO = subset(registers, Language == "English")
+registers_GO = subset(registers, Language == "German")
+
+head(texts)
+head(registers)
+
+#View(texts)
+```
+
+
+##3. Visualisation
+
+###3.2.1 Average number of verb phrases *per sentence* by register
+
+```{r}
+registers %>%
+  mutate(Register = fct_reorder(Register, vp_ps_av)) %>%
+  ggplot() + 
+    geom_pointrange(mapping = aes(x = vp_ps_av, y = Register, color = Language, 
+                                  xmin = vp_ps_min, xmax = vp_ps_max, shape = Mode), 
+                    size = 0.5, position = position_dodge(width=0.4),) + 
+    geom_vline(xintercept = mean(registers$vp_ps_av), colour = "grey") + # at the moment this average line is in a strange position since it is calculated from the entire data set (so including the strange values for ACADEMIC and SERMON)
+    labs(x = "Number of verb phrases per sentence", y = "Register", title = "Number of verb phrases per sentence for each register") +
+    theme_bw() + 
+    coord_cartesian(xlim = c(0,50))
+```
+
+###3.2.2 Average number of verb phrases *per hundred words* by register
+
+```{r English}
+registers_EO %>%
+  mutate(Register = fct_reorder(Register, vp_phw_av)) %>%
+  ggplot() + 
+    geom_pointrange(mapping = aes(x = vp_phw_av, y = Register, colour = Mode,
+                                  xmin = vp_phw_min, xmax = vp_phw_max, shape = Mode), 
+                    size = 0.5, position = position_dodge(width=0.4), xlim = c(0:25)) + 
+    geom_vline(xintercept = mean(registers_EO$vp_phw_av), colour = "grey") +
+    labs(x = "Number of verb phrases per hundred words", y = "Register", title = "Number of verb phrases per hundred words for each register in English") +
+    theme_bw() + 
+    coord_cartesian(xlim = c(0, 25))
+
+```
+
+```{r German}
+registers_GO %>%
+  mutate(Register = fct_reorder(Register, vp_phw_av)) %>%
+  ggplot() + 
+    geom_pointrange(mapping = aes(x = vp_phw_av, y = Register, colour = Mode,
+                                  xmin = vp_phw_min, xmax = vp_phw_max, shape = Mode), 
+                    size = 0.5, position = position_dodge(width=0.4)) + 
+    geom_vline(xintercept = mean(registers_GO$vp_phw_av), colour = "grey") +
+    labs(x = "Number of verb phrases per hundred words", y = "Register", title = "Number of verb phrases per hundred words for each register in German") +
+    theme_bw()  + 
+    coord_cartesian(xlim = c(0, 25))
+
+```
+
+```{r both}
+registers %>%
+  mutate(Register = fct_reorder(Register, vp_phw_av)) %>%
+  ggplot() + 
+    geom_pointrange(mapping = aes(x = vp_phw_av, y = Register, color = Language, 
+                                  xmin = vp_phw_min, xmax = vp_phw_max, shape = Mode), 
+                    size = 0.5, position = position_dodge(width=0.4)) + 
+    geom_vline(xintercept = mean(registers$vp_phw_av), colour = "grey") +
+    labs(x = "Number of verb phrases per hundred words", y = "Register", title = "Number of verb phrases per hundred words for each register") +
+    theme_bw() + 
+    coord_cartesian(xlim = c(0, 25))
+```
+
+##3.1 Relationship between register and VP-count
+
+```{r}
+# reorder factor levels first
+texts_reorderreg = texts %>%
+  mutate(Register = fct_reorder(Register, vp_phw, .fun="median"))
+summary(texts_reorderreg$Register)
+
+## both languages (not split up) as density plot
+ggplot(data = texts_reorderreg) +
+  geom_density(mapping = aes(x = vp_phw, colour = Language)) +
+  facet_wrap( ~ Register, nrow = 3) + 
+  coord_cartesian(xlim = c(0, 25))
+
+## English only as density plot
+ggplot(data = texts_EO) +
+  geom_density(mapping = aes(x = vp_phw)) +
+  facet_wrap( ~ Register, nrow = 3) + 
+  coord_cartesian(xlim = c(0, 25))
+
+## German only as density plot
+ggplot(data = texts_GO) +
+  geom_density(mapping = aes(x = vp_phw)) +
+  facet_wrap( ~ Register, nrow = 3) + 
+  coord_cartesian(xlim = c(0, 25))
+
+## both languages (split up) as a boxplot
+ggplot(data = texts_reorderreg) +
+  geom_boxplot(mapping = aes(x = vp_phw, y = Register, fill = Language)) + 
+  geom_vline(xintercept = mean(texts$vp_phw), linetype = 2) + 
+  labs(x = "Number of verb phrases per hundred words", y = "Register", title = "Number of verb phrases per hundred words \nfor each register by language") + 
+  coord_cartesian(xlim = c(0, 25))
+
+## both languages (not split up) as a boxplot
+ggplot(data = texts_reorderreg) +
+  geom_boxplot(mapping = aes(x = vp_phw, y = Register)) + 
+  geom_vline(xintercept = mean(texts$vp_phw), linetype = 2) + 
+  labs(x = "Number of verb phrases per hundred words", y = "Register", title = "Number of verb phrases per hundred words for each register") + 
+  coord_cartesian(xlim = c(0, 25))
+
+```
+
+
+##3.2 Relationship between language and VP-count
+
+```{r}
+## as a density plot
+ggplot(data = texts) +
+  geom_density(mapping = aes(x = vp_phw, colour = Language)) + 
+  coord_cartesian(xlim = c(0, 25))
+
+## as a box plot
+ggplot(data = texts) + 
+  geom_boxplot(mapping = aes(x = vp_phw, y = Language, fill = Language), show.legend = FALSE) +
+  geom_vline(xintercept = mean(texts$vp_phw), linetype = 2) + 
+  coord_cartesian(xlim = c(0, 25))
+```
+
+
+##3.3 Relationship between Mode and VP-count
+
+```{r}
+## density plot
+ggplot(data = texts) +
+  geom_density(mapping = aes(x = vp_phw, colour = Mode)) + 
+  facet_wrap( ~ Language, ncol = 1) + 
+  coord_cartesian(xlim = c(0, 25))
+
+## box plot
+ggplot(data = texts) +
+  geom_boxplot(mapping = aes(x = vp_phw, fill = Mode)) + 
+  coord_cartesian(xlim = c(0, 25)) + 
+  facet_wrap( ~ Language, nrow = 2)
+
+ggplot(data = texts) +
+  geom_boxplot(mapping = aes(x = vp_phw, fill = Mode)) + 
+  coord_cartesian(xlim = c(0, 25))
+
+## average number of verb phrases per hundred words
+# overall
+texts %>%
+  group_by(Mode) %>%
+  summarise(mean(vp_phw))
+# by language
+texts %>%
+  group_by(Mode, Language) %>%
+  summarise(mean(vp_phw))
+```
+
+
+##3.4 Relationship between information density (=STTR) and VP-count
+
+On register level
+
+```{r English}
+ggplot(data = registers_EO, aes(x = vp_phw_av, y = STTR_av)) +
+  geom_point() +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  geom_text(aes(x = vp_phw_av, y = STTR_av, label = Register), 
+            size = 3, vjust = 1.5) + 
+  labs(y = "Standardised Type-Token Ratio", x = "Average frequency of verb phrases per hundred words", title = "Standardised type-token ratio \nand frequency of verb phrases phw for each register - English") + 
+  coord_cartesian(xlim = c(0, 25))
+
+```
+
+```{r German}
+ggplot(data = registers_GO, aes(x = vp_phw_av, y = STTR_av)) +
+  geom_point() +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  geom_text(aes(x = vp_phw_av, y = STTR_av, label = Register), 
+            size = 3, vjust = 1.5) + 
+  labs(y = "Standardised Type-Token Ratio", x = "Average frequency of verb phrases per hundred words", title = "Standardised type-token ratio \nand frequency of verb phrases phw for each register - German") + 
+  coord_cartesian(xlim = c(0, 25))
+
+```
+
+```{r both}
+ggplot(data = registers, aes(x = vp_phw_av, y = STTR_av)) +
+  geom_point(aes(colour = Language, fill = Language)) +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  geom_text(aes(x = vp_phw_av, y = STTR_av, label = Register, colour = Language), 
+            size = 3, vjust = 1.5) + 
+  labs(y = "Standardised Type-Token Ratio", x = "Average frequency of verb phrases per hundred words", title = "Standardised type-token ratio \nand frequency of verb phrases per register") + 
+  coord_cartesian(xlim = c(0, 25))
+
+```
+
+```{r correlation coefficient}
+# for German only
+cor(registers_GO$vp_phw_av, registers_GO$STTR_av, method = "pearson") #-0.6862271
+
+# for English only
+cor(registers_EO$vp_phw_av, registers_EO$STTR_av, method = "pearson") #-0.689448
+
+# for both
+cor(registers$vp_phw_av, registers$STTR_av, method = "pearson") #-0.7059586
+
+```
+
+
+On text level
+```{r English}
+ggplot(data = texts_EO, aes(x = vp_phw, y = STTR)) +
+  geom_point() +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(y = "Standardised Type-Token Ratio", x = "Frequency of verb phrases per hundred words", title = "Standardised type-token ratio \nand frequency of verb phrases phw for each text - English") + 
+  coord_cartesian(xlim = c(0, 25))
+
+```
+
+```{r German}
+ggplot(data = texts_GO, aes(x = vp_phw, y = STTR)) +
+  geom_point() +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(y = "Standardised Type-Token Ratio", x = "Frequency of verb phrases per hundred words", title = "Standardised type-token ratio \nand frequency of verb phrases phw for each text - German") + 
+  coord_cartesian(xlim = c(0, 25))
+
+```
+
+```{r both}
+ggplot(data = texts, aes(x = vp_phw, y = STTR)) +
+  geom_point(aes(colour = Language, fill = Language)) +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(y = "Standardised Type-Token Ratio", x = "Frequency of verb phrases per hundred words", title = "Standardised type-token ratio \nand frequency of verb phrases phw for each text") + 
+  coord_cartesian(xlim = c(0, 25))
+
+ggplot(data = texts, aes(x = vp_phw, y = STTR)) +
+  geom_point(aes(colour = Language, fill = Language), show.legend = FALSE) +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(y = "Standardised Type-Token Ratio", x = "Frequency of verb phrases per hundred words", title = "Standardised type-token ratio \nand frequency of verb phrases phw for each text") + 
+  coord_cartesian(xlim = c(0, 25)) + 
+  facet_wrap( ~ Language, ncol = 2)
+
+```
+
+```{r correlation coefficient}
+# for German only
+cor(texts_GO$vp_phw, texts_GO$STTR, method = "pearson") #-0.5417777
+
+# for English only
+cor(texts_EO$vp_phw, texts_EO$STTR, method = "pearson") #-0.6200251
+
+# for both
+cor(texts$vp_phw, texts$STTR, method = "pearson") #-0.6165322
+
+```
+
+
+##3.5 Relationship between text length and verbiness
+
+Does the length of a text have an effect on its overall verbiness?
+
+```{r NR_tokens (not log-transformed, no outliers removed)}
+## both languages (split up)
+ggplot(data = texts, aes(y = NR_vp, x = NR_tokens)) +
+  geom_point(aes(colour = Language, fill = Language), show.legend = FALSE) +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Text length in number of tokens", y = "Count of verb phrases", 
+       title = "Text length and frequency of verb phrases per text") +
+  facet_wrap( ~ Language, nrow = 1)
+
+## both languages (not split up)
+ggplot(data = texts, aes(y = NR_vp, x = NR_tokens)) +
+  geom_point(aes()) +
+  geom_smooth(method=lm , color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Text length in number of tokens", y = "Count of verb phrases", 
+       title = "Text length and frequency of verb phrases per text")
+```
+
+Same graph but without the outliers (only data points where NR_tokens < 5000)
+
+```{r NR_tokens without outliers}
+texts_cropped = subset(texts, NR_tokens < 5000)
+
+## both languages (split up)
+ggplot(data = texts_cropped, aes(x = NR_tokens, y = NR_vp)) +
+  geom_point(aes(colour = Language, fill = Language), show.legend = FALSE) +
+  geom_smooth(color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Text length in number of tokens", y = "Count of verb phrases", 
+       title = "Text length and frequency of verb phrases per text (without outliers)")+ 
+  facet_wrap( ~ Language, nrow = 1)
+
+## both languages (not split up)
+ggplot(data = texts_cropped, aes(x = NR_tokens, y = NR_vp)) +
+  geom_point(aes()) +
+  geom_smooth(color="grey", se=FALSE, linetype = 2) +
+  labs(x = "Text length in number of tokens", y = "Count of verb phrases", 
+       title = "Text length and frequency of verb phrases per text (without outliers)")
+```
+
+Same graph but without the outliers (only data points where NR_tokens < 5000) and log-transformed
+
+```{r NR_tokens without outliers & log-transformed}
+texts_cropped = subset(texts, NR_tokens < 5000) %>%
+  mutate(NR_tokens_log = log(NR_tokens))
+
+
+## both languages (split up)
+ggplot(data = texts_cropped, aes(x = NR_tokens_log, y = NR_vp)) +
+  geom_point(aes(colour = Language, fill = Language), show.legend = FALSE) +
+  geom_smooth(color="grey", se=FALSE, linetype = 2) + # method=lm
+  labs(x = "Text length in log number of tokens", y = "Count of verb phrases", 
+       title = "Log text length and frequency of verb phrases per text (without outliers)")+ 
+  facet_wrap( ~ Language, nrow = 1) + 
+  coord_cartesian(xlim = c(0, 9))
+
+## both languages (not split up)
+ggplot(data = texts_cropped, aes(x = NR_tokens_log, y = NR_vp)) +
+  geom_point(aes()) +
+  geom_smooth(color="grey", se=FALSE, linetype = 2) +  # method=lm 
+  labs(x = "Text length in log number of tokens", y = "Count of verb phrases", 
+       title = "Log text length and frequency of verb phrases per text (without outliers)") + 
+  coord_cartesian(xlim = c(0, 9))
+```
+
+Same graph but log-transformed
+
+```{r NR_tokens log-transformed}
+texts = texts %>%
+  mutate(NR_tokens_log = log(NR_tokens))
+
+
+## both languages (split up)
+ggplot(data = texts, aes(x = NR_tokens_log, y = NR_vp)) +
+  geom_point(aes(colour = Language, fill = Language), show.legend = FALSE) +
+  geom_smooth(method = "gam", color="grey", se=FALSE, linetype = 2) + # method=lm
+  labs(x = "Text length in log number of tokens", y = "Count of verb phrases", 
+       title = "Log text length and frequency of verb phrases per text")+ 
+  facet_wrap( ~ Language, nrow = 1) + 
+  coord_cartesian(xlim = c(0, 9))
+
+## both languages (not split up)
+ggplot(data = texts, aes(x = NR_tokens_log, y = NR_vp)) +
+  geom_point(aes()) +
+  geom_smooth(method = "gam", color="grey", se=FALSE, linetype = 2) +  # method=lm 
+  labs(x = "Text length in log number of tokens", y = "Count of verb phrases", 
+       title = "Log text length and frequency of verb phrases per text") + 
+  coord_cartesian(xlim = c(0, 9))
+```
+
+
+##3.6 Assessing the relevance of non-finite verb phrases for the difference in "verbiness" between the two languages
+
+```{r create a new table}
+freq_vp_f = texts %>%
+  group_by(Language) %>%
+  summarise(sum = sum(NR_vp_f))
+freq_vp_f$finiteness = c("finite")
+
+freq_vp_nf = texts %>%
+  group_by(Language) %>%
+  summarise(sum = sum(NR_vp_nf))
+freq_vp_nf$finiteness = c("non-finite")
+
+freq_vps = bind_rows(freq_vp_f, freq_vp_nf)
+
+total_vps_EO = sum(subset(texts, Language == "English")$NR_vp)
+total_vps_GO = sum(subset(texts, Language == "German")$NR_vp)
+
+freq_vps_EO = subset(freq_vps, Language == "English")
+freq_vps_GO = subset(freq_vps, Language == "German")
+
+freq_vps_EO$total_vps <- sum(subset(texts, Language == "English")$NR_vp)
+freq_vps_EO$total_tokens <- sum(subset(texts, Language == "English")$NR_tokens)
+freq_vps_GO$total_vps <- sum(subset(texts, Language == "German")$NR_vp)
+freq_vps_GO$total_tokens <- sum(subset(texts, Language == "German")$NR_tokens)
+
+freq_vps = bind_rows(freq_vps_EO, freq_vps_GO)
+
+freq_vps <- freq_vps %>%
+  mutate(percentage = sum/total_vps) %>%
+  mutate(phw = (sum/total_tokens)*100)
+freq_vps
+
+```
+
+```{r plotting absolute counts}
+## bar chart stacked
+ggplot(data = freq_vps) + 
+  geom_col(mapping = aes(x = Language, y = sum, colour = finiteness, fill = finiteness))
+
+## bar chart dodged
+ggplot(data = freq_vps) + 
+  geom_col(mapping = aes(x = Language, y = sum, colour = finiteness, fill = finiteness), position = "dodge") +
+  #geom_text(mapping = aes(x = Language, y = 100*percentage, label = 100*percentage), size = 3)
+  labs(title = "Absolute number of finite and non-finite verb phrases in English and German", x = "Language", y = "Absolute number")
+
+```
+
+
+```{r plotting percentages}
+## bar chart stacked
+ggplot(data = freq_vps) + 
+  geom_col(mapping = aes(x = Language, y = percentage, colour = finiteness, fill = finiteness))
+
+## bar chart dodged
+ggplot(data = freq_vps) + 
+  geom_col(mapping = aes(x = Language, y = 100*percentage, colour = finiteness, fill = finiteness), position = "dodge") +
+  #geom_text(mapping = aes(x = Language, y = 100*percentage, label = 100*percentage), size = 3)
+  labs(title = "Percentage of finite and non-finite verb phrases in English and German", x = "Language", y = "Percentage of all verb phrases")
+
+```
+
+```{r plotting phw}
+## bar chart stacked
+ggplot(data = freq_vps) + 
+  geom_col(mapping = aes(x = Language, y = phw, colour = finiteness, fill = finiteness))
+
+## bar chart dodged
+ggplot(data = freq_vps) + 
+  geom_col(mapping = aes(x = Language, y = phw, colour = finiteness, fill = finiteness), position = "dodge") +
+  #geom_text(mapping = aes(x = Language, y = 100*percentage, label = 100*percentage), size = 3)
+  labs(title = "Frequency phw of finite and non-finite verb phrases in English and German", x = "Language", y = "Frequency per hundred words")
+
+```
+
+
+
+
+
